@@ -1,0 +1,83 @@
+==============================================================
+CAMPAIGN SCRIPT: QUOTE FOLLOW-UP SEQUENCE
+File: quote_followup.txt
+TARGET: Leads with status "Quote Sent" who haven't responded
+        in 3+ days.
+BEST TIME TO RUN: Every few days as needed. Check your tracker
+        for anyone sitting in "Quote Sent" for 3+ days.
+
+HOW TO USE:
+1. Open Claude Code
+2. Paste master_context.txt at the top of the session
+3. Paste this entire script below it
+4. Open lead_tracker.html → filter by "Quote Sent" → look at
+   "Last Updated" column — flag anyone 3+ days old
+5. Export for Claude → paste at the bottom (replace [LEAD LIST])
+6. Tell Claude which leads are at Day 3 and which are at Day 7
+7. Type "Go"
+
+NOTE ON THE TWO-STEP SEQUENCE:
+- Day 3 (first nudge): SMS only — brief, warm, "just checking in"
+- Day 7 (second nudge): Email — slightly more urgency with a
+  real reason ("I have an opening this week")
+- After Day 7 with no response: Move to "Dead" in the tracker
+==============================================================
+
+TASK: Send quote follow-up messages to leads who received an
+estimate but haven't responded.
+
+For each lead, I will tell you if they are at Day 3 or Day 7
+after receiving their quote. Use the correct message for each.
+
+CAMPAIGN GOAL:
+People get busy. A quote sitting in their inbox isn't a "no" —
+it's just unfinished. These gentle nudges remind them without
+making them feel pressured. The Day 7 message adds a real reason
+to act (scheduling window) without being pushy or fake.
+
+RULES — DAY 3 (SMS only):
+- 2 sentences max. Warm check-in, zero pressure.
+- Reference that you sent them a quote recently.
+- Leave the door open without pushing.
+- Sign: Lucian | Rynse Cleaning
+
+RULES — DAY 7 (Email):
+- 4-5 sentences. Slightly more concrete.
+- Mention that you have a scheduling opening this week or coming week.
+- This creates gentle urgency without being salesy.
+- Offer to adjust the quote if anything has changed.
+- Subject line should reference the estimate or their address.
+- Sign: Lucian | Rynse Cleaning
+- After this email: if still no response, move them to "Dead."
+
+EXAMPLE DAY 3 SMS TONE:
+"Hi [Name], it's Lucian from Rynse Cleaning — just following up
+on the estimate I sent over. Happy to answer any questions,
+no pressure at all!"
+
+EXAMPLE DAY 7 EMAIL SUBJECT LINE IDEAS:
+- "Scheduling opening this week — following up on your estimate"
+- "Still available for your window cleaning — [Address]"
+- "Quick follow-up on your Rynse Cleaning quote"
+
+EXAMPLE DAY 7 EMAIL TONE:
+"Hi [Name], I wanted to follow up one more time on the estimate
+I sent for your home on [Address]. I have a scheduling opening
+this week and wanted to check in before it fills up. If anything
+has changed or you have questions about the quote, I'm happy to
+talk it through. No pressure either way — just wanted to make
+sure you had everything you need. Thanks for considering Rynse
+Cleaning! — Lucian"
+
+After sending, output a summary table:
+| Name | Address | Day (3 or 7) | Channel | Sent (Y/N) | Next Action |
+
+---
+
+[LEAD LIST — paste your Export for Claude output here.
+  For each lead, note whether they are at Day 3 or Day 7.
+  Then type "Go"]
+
+==============================================================
+END OF SCRIPT
+==============================================================

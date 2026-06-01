@@ -1,0 +1,60 @@
+==============================================================
+CAMPAIGN SCRIPT: REFERRAL REQUEST
+File: referral_request.txt
+TARGET: Leads with status "Closed" — past customers who were happy
+        with the work.
+BEST TIME TO RUN: After completing a batch of jobs, or once a month
+        as a routine. Ideal 2–4 weeks after their service.
+
+HOW TO USE:
+1. Open Claude Code
+2. Paste master_context.txt at the top of the session
+3. Paste this entire script below it
+4. Open lead_tracker.html → filter by "Closed" → click
+   "Export for Claude" → copy the output
+5. Paste the lead export at the bottom (replace [LEAD LIST])
+6. Type "Go"
+==============================================================
+
+TASK: Send a referral request campaign to past Rynse Cleaning
+customers. These are people whose windows (or screens, or exterior)
+we already cleaned and who paid for the service.
+
+CAMPAIGN GOAL:
+Thank them genuinely for their business and ask if they know anyone
+who could use our services. Offer a referral incentive: $20 credit
+toward their next service if their referral books a job. The person
+they refer gets $10 off their first visit.
+
+RULES FOR THIS CAMPAIGN:
+- Tone: warm, personal, grateful. These are existing customers —
+  they already like us. Don't be overly salesy.
+- SMS version: 2-3 sentences. Keep the incentive offer clear and brief.
+- Email version: 4-6 sentences. Slightly warmer and more personal.
+- Reference what we did for them if notes include service details
+  (e.g. "really glad the windows turned out so well").
+- Never pressure. Frame it as a favor to a neighbor, not a sales pitch.
+- Sign every message: Lucian | Rynse Cleaning
+- The referral deal: $20 credit for them, $10 off for their referral.
+
+EXAMPLE SMS TONE:
+"Hi [Name], it's Lucian from Rynse Cleaning — hope the windows are
+still looking great! If you know anyone in the area who could use a
+clean, I'd love the introduction. I'll give you $20 off your next
+service and your referral gets $10 off their first visit. Thanks again!"
+
+EXAMPLE EMAIL SUBJECT LINE IDEAS:
+- "A quick thank-you — and a little something for you"
+- "Know anyone who could use cleaner windows?"
+- "Referral offer from Rynse Cleaning"
+
+After sending, output a summary table:
+| Name | Address | Channel (SMS/Email/Both) | Message Sent (Y/N) | Notes |
+
+---
+
+[LEAD LIST — paste your Export for Claude output here, then type "Go"]
+
+==============================================================
+END OF SCRIPT
+==============================================================

@@ -1,0 +1,66 @@
+==============================================================
+CAMPAIGN SCRIPT: POST-SERVICE FOLLOW-UP
+File: post_service_followup.txt
+TARGET: Leads with status "Closed" who were serviced in the
+        LAST 7 DAYS. Run this every Sunday for the past week's
+        completed jobs.
+BEST TIME TO RUN: Every Sunday evening. Takes 10 minutes.
+
+HOW TO USE:
+1. Open Claude Code
+2. Paste master_context.txt at the top of the session
+3. Paste this entire script below it
+4. Open lead_tracker.html → filter by "Closed" → manually note
+   which ones were completed this past week → Export for Claude
+5. Paste the lead export at the bottom (replace [LEAD LIST])
+6. Add a note like: "These were all completed this week"
+7. Type "Go"
+==============================================================
+
+TASK: Send a post-service follow-up to customers whose jobs were
+just completed this week. These people just had their windows
+(or screens or exterior) cleaned by Rynse Cleaning in the last 7 days.
+
+CAMPAIGN GOAL:
+Three things in one message:
+  1. Thank them genuinely for the business
+  2. Ask for a Google review (this is important for the business)
+  3. Plant the seed for a referral
+
+Keep it warm and brief. They just had a good experience —
+this is the highest-leverage moment to ask for a review.
+
+RULES FOR THIS CAMPAIGN:
+- Send via SMS (preferred — more likely to be seen and acted on quickly)
+- Also send an email version if they have an email on file
+- 2-3 sentences for SMS. Warm but professional.
+- Email version: 4-5 sentences. Can include a simple ask to
+  "leave us a quick Google review" — no link needed, they can search
+  "Rynse Cleaning Bakersfield."
+- Reference the service performed if noted (e.g. "so glad the
+  windows came out well" or "hope the screens look great").
+- The Google review ask should feel natural, not transactional.
+- Never offer a discount for a review — just ask sincerely.
+- Referral mention should be brief and at the end, not the focus.
+- Sign: Lucian | Rynse Cleaning
+
+EXAMPLE SMS TONE:
+"Hi [Name], it's Lucian — really appreciate you choosing Rynse
+Cleaning! If you're happy with the results, a quick Google review
+would mean the world to us. And if you know anyone who could use
+a clean, I'd love the intro. Thank you!"
+
+EXAMPLE EMAIL SUBJECT LINE IDEAS:
+- "Thank you for choosing Rynse Cleaning"
+- "Hope everything looks great — quick favor to ask"
+
+After sending, output a summary table:
+| Name | Address | Channel | Sent (Y/N) | Notes |
+
+---
+
+[LEAD LIST — paste your Export for Claude output here, then type "Go"]
+
+==============================================================
+END OF SCRIPT
+==============================================================

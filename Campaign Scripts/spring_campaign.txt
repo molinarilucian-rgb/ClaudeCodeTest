@@ -1,0 +1,60 @@
+==============================================================
+CAMPAIGN SCRIPT: SPRING / SEASONAL PUSH
+File: spring_campaign.txt
+TARGET: Leads with status "New" or "Contacted" who went cold —
+        especially anyone you spoke to in fall/winter.
+BEST TIME TO RUN: March–May, or after any big weather event (rain,
+        dust storm, pollen season).
+
+HOW TO USE:
+1. Open Claude Code
+2. Paste master_context.txt at the top of the session
+3. Paste this entire script below it
+4. Open lead_tracker.html → filter by "New" or "Contacted" → click
+   "Export for Claude" → copy the output
+5. Paste the lead export at the bottom of this script (replace [LEAD LIST])
+6. Type "Go" — Claude generates and sends everything
+==============================================================
+
+TASK: Run a spring seasonal outreach campaign for Rynse Cleaning.
+Below is my lead list — these are homeowners I previously contacted
+or knocked for who never converted. Send each lead a personalized
+outreach via their preferred channel (SMS if phone available, email
+if email available, both if both available).
+
+CAMPAIGN GOAL:
+Re-engage cold leads with a timely, seasonal reason to reach out.
+The angle is: spring is here, windows get grimy from winter/rain/pollen,
+now is the perfect time for a fresh clean before summer. Keep it
+professional, brief, and genuine — no hard sell.
+
+RULES FOR THIS CAMPAIGN:
+- SMS version: 2-3 sentences max. Reference the season naturally.
+- Email version: 4-6 sentences. Subject line should be seasonal and specific.
+- Personalize each message using details from their notes where possible
+  (e.g. if they mentioned a specific service, reference it).
+- Never quote a price — always direct to free estimate.
+- Never pressure. Give them an easy way to say "not yet" and still feel good.
+- Sign every message: Lucian | Rynse Cleaning
+- Do not send to any lead marked "Booked", "Closed", or "Dead."
+
+EXAMPLE SMS TONE (do not copy word for word — make each unique):
+"Hi [Name], it's Lucian from Rynse Cleaning. Spring is a great time
+to get the winter grime off your windows before the summer heat sets in.
+I'd love to offer you a free estimate — just reply here if you're interested."
+
+EXAMPLE EMAIL SUBJECT LINE IDEAS (pick the best fit per lead):
+- "Spring window cleaning — free estimate for [Address] area"
+- "Pollen season is here — time for a fresh clean?"
+- "Quick note from Rynse Cleaning"
+
+After sending, output a summary table:
+| Name | Address | Channel (SMS/Email/Both) | Message Sent (Y/N) | Notes |
+
+---
+
+[LEAD LIST — paste your Export for Claude output here, then type "Go"]
+
+==============================================================
+END OF SCRIPT
+==============================================================

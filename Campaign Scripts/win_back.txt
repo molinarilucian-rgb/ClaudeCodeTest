@@ -1,0 +1,60 @@
+==============================================================
+CAMPAIGN SCRIPT: WIN-BACK (COLD LEADS)
+File: win_back.txt
+TARGET: Leads with status "Dead" — people who said no, went silent,
+        or didn't respond after multiple attempts. Wait at least
+        60 days before running this on any lead.
+BEST TIME TO RUN: Quarterly. Circumstances change — people move,
+        renovate, or just weren't ready before.
+
+HOW TO USE:
+1. Open Claude Code
+2. Paste master_context.txt at the top of the session
+3. Paste this entire script below it
+4. Open lead_tracker.html → filter by "Dead" → click
+   "Export for Claude" → copy the output
+5. Paste the lead export at the bottom (replace [LEAD LIST])
+6. Type "Go"
+==============================================================
+
+TASK: Send a very light, no-pressure win-back message to leads
+that previously went cold or said no. These are marked "Dead"
+in my lead tracker but enough time has passed that it's worth
+a gentle check-in.
+
+CAMPAIGN GOAL:
+Some people said no because of timing, budget, or they just
+weren't ready. A brief, friendly message months later costs
+nothing and occasionally converts. The tone must be completely
+pressure-free — one last soft touch, that's all.
+
+RULES FOR THIS CAMPAIGN:
+- SMS only for this campaign — email feels too formal for a win-back.
+- 2 sentences max. Acknowledge the time that's passed. Zero pressure.
+- Do NOT reference why they said no or remind them of a previous
+  conversation in a way that feels awkward.
+- Make it feel like a casual check-in from a neighbor, not a
+  sales follow-up.
+- Never quote a price.
+- End with an easy yes or no option — something like "no worries
+  at all if the timing still isn't right."
+- Sign: Lucian | Rynse Cleaning
+- If a lead has a note saying they were rude or asked not to be
+  contacted — SKIP THEM. Flag in the summary instead.
+
+EXAMPLE SMS TONE:
+"Hi [Name], it's Lucian from Rynse Cleaning — just checking in
+after a while. If you ever want to get your windows cleaned,
+I'm still in the area and happy to give a free estimate.
+No worries at all if the timing isn't right!"
+
+After sending, output a summary table:
+| Name | Address | Sent (Y/N/Skipped) | Reason if Skipped | Notes |
+
+---
+
+[LEAD LIST — paste your Export for Claude output here, then type "Go"]
+
+==============================================================
+END OF SCRIPT
+==============================================================
