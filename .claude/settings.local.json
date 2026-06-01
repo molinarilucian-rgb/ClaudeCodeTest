@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "PowerShell($env:PATH = [System.Environment]::GetEnvironmentVariable\\(\"PATH\", \"Machine\"\\) + \";\" + [System.Environment]::GetEnvironmentVariable\\(\"PATH\", \"User\"\\); node -e \"require\\('child_process'\\).execSync\\('npx -y @gongrzhe/server-gmail-autoauth-mcp', {timeout:8000}\\)\" 2>&1)",
+      "PowerShell($env:PATH = [System.Environment]::GetEnvironmentVariable\\(\"PATH\", \"Machine\"\\) + \";\" + [System.Environment]::GetEnvironmentVariable\\(\"PATH\", \"User\"\\); npx -y @gongrzhe/server-gmail-autoauth-mcp --help 2>&1; echo \"EXIT: $LASTEXITCODE\")",
+      "PowerShell(npm install *)",
+      "PowerShell($env:PATH = [System.Environment]::GetEnvironmentVariable\\(\"PATH\", \"Machine\"\\) + \";\" + [System.Environment]::GetEnvironmentVariable\\(\"PATH\", \"User\"\\); node -e \"const p = require.resolve\\('@gongrzhe/server-gmail-autoauth-mcp'\\); console.log\\(p\\)\")",
+      "PowerShell(Get-ChildItem *)",
+      "Bash(gh auth *)",
+      "Bash(git init *)",
+      "Bash(git add *)",
+      "Bash(git commit *)"
+    ]
+  }
+}
