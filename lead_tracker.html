@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Rynse Cleaning — Lead Tracker</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f1f5f9; color: #1e293b; }
+
+    header { background: #0f172a; color: white; padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; }
+    header h1 { font-size: 20px; font-weight: 600; letter-spacing: -0.5px; }
+    header span { font-size: 13px; opacity: 0.6; }
+
+    .stats { display: flex; gap: 8px; padding: 14px 24px; background: white; border-bottom: 1px solid #e2e8f0; flex-wrap: wrap; }
+    .stat-chip { padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; cursor: pointer; border: 2px solid transparent; transition: border-color 0.15s; user-select: none; }
+    .stat-chip:hover, .stat-chip.active { border-color: currentColor; }
+
+    .controls { display: flex; gap: 10px; padding: 14px 24px; background: white; border-bottom: 1px solid #e2e8f0; flex-wrap: wrap; align-items: center; }
+    .controls input, .controls select { padding: 8px 12px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 14px; outline: none; }
+    .controls input:focus, .controls select:focus { border-color: #0ea5e9; }
+    .controls input { flex: 1; min-width: 180px; }
+    .btn { padding: 8px 16px; border-radius: 6px; border: none; cursor: pointer; font-size: 14px; font-weight: 600; transition: opacity 0.15s; white-space: nowrap; }
+    .btn:hover { opacity: 0.85; }
+    .btn-primary { background: #0ea5e9; color: white; }
+    .btn-export { background: #0f172a; color: white; }
+    .btn-danger { background: #ef4444; color: white; }
+    .btn-secondary { background: #e2e8f0; color: #1e293b; }
+    .btn-sm { padding: 4px 10px; font-size: 12px; border-radius: 4px; }
+
+    .table-wrap { padding: 20px 24px; }
+    table { width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+    th { background: #f8fafc; text-align: left; padding: 11px 16px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: #64748b; border-bottom: 1px solid #e2e8f0; }
+    td { padding: 11px 16px; font-size: 14px; border-bottom: 1px solid #f1f5f9; vertical-align: middle; }
+    tr:last-child td { border-bottom: none; }
+    tr.lead-row { cursor: pointer; transition: background 0.1s; }
+    tr.lead-row:hover { background: #f8fafc; }
+
+    .badge { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px; }
+    .badge-New        { background: #e2e8f0; color: #475569; }
+    .badge-Contacted  { background: #dbeafe; color: #1d4ed8; }
+    .badge-Interested { background: #fef9c3; color: #854d0e; }
+    .badge-Quote-Sent { background: #ffedd5; color: #9a3412; }
+    .badge-Booked     { background: #dcfce7; color: #15803d; }
+    .badge-Closed     { background: #bbf7d0; color: #14532d; }
+    .badge-Dead       { background: #fee2e2; color: #991b1b; }
+
+    tr[data-status="New"]         td:first-child { border-left: 3px solid #94a3b8; }
+    tr[data-status="Contacted"]   td:first-child { border-left: 3px solid #3b82f6; }
+    tr[data-status="Interested"]  td:first-child { border-left: 3px solid #eab308; }
+    tr[data-status="Quote Sent"]  td:first-child { border-left: 3px solid #f97316; }
+    tr[data-status="Booked"]      td:first-child { border-left: 3px solid #22c55e; }
+    tr[data-status="Closed"]      td:first-child { border-left: 3px solid #16a34a; }
+    tr[data-status="Dead"]        td:first-child { border-left: 3px solid #ef4444; }
+
+    tr.notes-row { display: none; }
+    tr.notes-row.open { display: table-row; }
+    tr.notes-row td { background: #f8fafc; font-size: 13px; color: #475569; padding: 10px 16px 14px 44px; }
+    .notes-history { list-style: none; }
+    .notes-history li { margin-bottom: 6px; line-height: 1.4; }
+    .notes-history li .note-date { font-size: 11px; font-weight: 700; color: #94a3b8; display: block; margin-bottom: 1px; }
+
+    .actions { display: flex; gap: 6px; }
+
+    .empty { text-align: center; padding: 60px 24px; color: #94a3b8; }
+    .empty h3 { font-size: 16px; font-weight: 600; color: #cbd5e1; }
+    .empty p { margin-top: 8px; font-size: 14px; }
+
+    .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 100; align-items: center; justify-content: center; padding: 20px; }
+    .modal-overlay.open { display: flex; }
+    .modal { background: white; border-radius: 12px; width: 100%; max-width: 520px; max-height: 90vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.25); }
+    .modal-header { padding: 20px 24px 0; display: flex; justify-content: space-between; align-items: center; }
+    .modal-header h2 { font-size: 18px; font-weight: 700; }
+    .modal-close { background: none; border: none; font-size: 22px; cursor: pointer; color: #94a3b8; line-height: 1; padding: 0 4px; }
+    .modal-body { padding: 20px 24px; }
+    .modal-footer { padding: 0 24px 20px; display: flex; gap: 8px; justify-content: flex-end; }
+    .form-group { margin-bottom: 14px; }
+    .form-group label { display: block; font-size: 11px; font-weight: 700; color: #475569; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 0.4px; }
+    .form-group input, .form-group select, .form-group textarea { width: 100%; padding: 9px 12px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 14px; outline: none; font-family: inherit; color: #1e293b; }
+    .form-group input:focus, .form-group select:focus, .form-group textarea:focus { border-color: #0ea5e9; box-shadow: 0 0 0 3px rgba(14,165,233,0.1); }
+    .form-group textarea { resize: vertical; min-height: 90px; line-height: 1.5; }
+    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+    .export-text { background: #f8fafc; border-radius: 6px; padding: 14px; font-size: 12px; font-family: 'Consolas', 'Courier New', monospace; white-space: pre-wrap; max-height: 380px; overflow-y: auto; border: 1px solid #e2e8f0; line-height: 1.6; }
+    .copy-confirm { color: #15803d; font-weight: 600; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Rynse Cleaning &mdash; Lead Tracker</h1>
+  <span id="date-display"></span>
+</header>
+
+<div class="stats" id="stats-bar"></div>
+
+<div class="controls">
+  <input type="text" id="search" placeholder="Search by name or address..." oninput="render()">
+  <select id="filter-status" onchange="render()">
+    <option value="">All Statuses</option>
+    <option>New</option>
+    <option>Contacted</option>
+    <option>Interested</option>
+    <option>Quote Sent</option>
+    <option>Booked</option>
+    <option>Closed</option>
+    <option>Dead</option>
+  </select>
+  <button class="btn btn-primary" onclick="openModal()">+ Add Lead</button>
+  <button class="btn btn-export" onclick="openExport()">Export for Claude</button>
+</div>
+
+<div class="table-wrap">
+  <div class="empty" id="empty-state">
+    <h3>No leads yet</h3>
+    <p>Click <strong>+ Add Lead</strong> after your next door-knocking session.</p>
+  </div>
+  <table id="lead-table" style="display:none">
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Address</th>
+        <th>Phone</th>
+        <th>Status</th>
+        <th>Last Updated</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody id="table-body"></tbody>
+  </table>
+</div>
+
+<!-- Add / Edit Modal -->
+<div class="modal-overlay" id="lead-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h2 id="modal-title">Add Lead</h2>
+      <button class="modal-close" onclick="closeModal()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="edit-id">
+      <div class="form-row">
+        <div class="form-group">
+          <label>Name *</label>
+          <input type="text" id="f-name" placeholder="First Last">
+        </div>
+        <div class="form-group">
+          <label>Status</label>
+          <select id="f-status">
+            <option>New</option>
+            <option>Contacted</option>
+            <option>Interested</option>
+            <option>Quote Sent</option>
+            <option>Booked</option>
+            <option>Closed</option>
+            <option>Dead</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Address *</label>
+        <input type="text" id="f-address" placeholder="123 Main St, Bakersfield">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Phone</label>
+          <input type="tel" id="f-phone" placeholder="(818) 000-0000">
+        </div>
+        <div class="form-group">
+          <label>Email (optional)</label>
+          <input type="email" id="f-email" placeholder="email@example.com">
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Notes</label>
+        <textarea id="f-notes" placeholder="What happened at the door? Services interested in? Best time to call? Anything specific they mentioned?"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveLead()">Save Lead</button>
+    </div>
+  </div>
+</div>
+
+<!-- Export Modal -->
+<div class="modal-overlay" id="export-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>Export for Claude</h2>
+      <button class="modal-close" onclick="closeExport()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label>Show leads with status</label>
+        <select id="export-filter" onchange="updateExportText()">
+          <option value="">All Leads</option>
+          <option>New</option>
+          <option>Contacted</option>
+          <option>Interested</option>
+          <option>Quote Sent</option>
+          <option>Booked</option>
+          <option>Closed</option>
+          <option>Dead</option>
+        </select>
+      </div>
+      <div class="export-text" id="export-text"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeExport()">Close</button>
+      <button class="btn btn-primary" id="copy-btn" onclick="copyExport()">Copy to Clipboard</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  const STATUSES = ['New','Contacted','Interested','Quote Sent','Booked','Closed','Dead'];
+  const STATUS_COLORS = {
+    'New':        { bg:'#e2e8f0', color:'#475569' },
+    'Contacted':  { bg:'#dbeafe', color:'#1d4ed8' },
+    'Interested': { bg:'#fef9c3', color:'#854d0e' },
+    'Quote Sent': { bg:'#ffedd5', color:'#9a3412' },
+    'Booked':     { bg:'#dcfce7', color:'#15803d' },
+    'Closed':     { bg:'#bbf7d0', color:'#14532d' },
+    'Dead':       { bg:'#fee2e2', color:'#991b1b' },
+  };
+
+  function load() {
+    try { return JSON.parse(localStorage.getItem('rynse_leads') || '[]'); }
+    catch(e) { return []; }
+  }
+
+  function save(leads) {
+    localStorage.setItem('rynse_leads', JSON.stringify(leads));
+  }
+
+  function uid() {
+    return Date.now().toString(36) + Math.random().toString(36).slice(2);
+  }
+
+  function fmtDate(iso) {
+    if (!iso) return '—';
+    return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  }
+
+  function fmtDateTime(iso) {
+    if (!iso) return '';
+    const d = new Date(iso);
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' at ' +
+           d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  }
+
+  function esc(str) {
+    return String(str || '')
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  // ── Stats bar ──────────────────────────────────────────────
+  function renderStats() {
+    const leads = load();
+    const activeFilter = document.getElementById('filter-status').value;
+    const bar = document.getElementById('stats-bar');
+    bar.innerHTML = '';
+
+    const allChip = document.createElement('span');
+    allChip.className = 'stat-chip' + (!activeFilter ? ' active' : '');
+    allChip.style.cssText = 'background:#f1f5f9;color:#64748b;';
+    allChip.textContent = `All (${leads.length})`;
+    allChip.onclick = () => { document.getElementById('filter-status').value = ''; render(); };
+    bar.appendChild(allChip);
+
+    STATUSES.forEach(s => {
+      const count = leads.filter(l => l.status === s).length;
+      const c = STATUS_COLORS[s];
+      const chip = document.createElement('span');
+      chip.className = 'stat-chip' + (activeFilter === s ? ' active' : '');
+      chip.style.cssText = `background:${c.bg};color:${c.color};`;
+      chip.textContent = `${s} (${count})`;
+      chip.onclick = () => { document.getElementById('filter-status').value = s; render(); };
+      bar.appendChild(chip);
+    });
+  }
+
+  // ── Main render ────────────────────────────────────────────
+  function render() {
+    const leads = load();
+    const search = document.getElementById('search').value.toLowerCase().trim();
+    const statusFilter = document.getElementById('filter-status').value;
+
+    let filtered = leads.filter(l => {
+      const matchSearch = !search ||
+        l.name.toLowerCase().includes(search) ||
+        l.address.toLowerCase().includes(search);
+      const matchStatus = !statusFilter || l.status === statusFilter;
+      return matchSearch && matchStatus;
+    });
+
+    filtered.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+
+    const tbody = document.getElementById('table-body');
+    const empty = document.getElementById('empty-state');
+    const table = document.getElementById('lead-table');
+
+    tbody.innerHTML = '';
+
+    if (filtered.length === 0) {
+      empty.style.display = 'block';
+      table.style.display = 'none';
+    } else {
+      empty.style.display = 'none';
+      table.style.display = 'table';
+
+      filtered.forEach(lead => {
+        const badgeClass = 'badge badge-' + lead.status.replace(' ', '-');
+        const history = lead.notesHistory || [];
+
+        // Main row
+        const tr = document.createElement('tr');
+        tr.className = 'lead-row';
+        tr.dataset.status = lead.status;
+        tr.dataset.id = lead.id;
+        tr.innerHTML = `
+          <td><strong>${esc(lead.name)}</strong></td>
+          <td style="color:#475569">${esc(lead.address)}</td>
+          <td style="color:#475569">${esc(lead.phone || '—')}</td>
+          <td><span class="${badgeClass}">${esc(lead.status)}</span></td>
+          <td style="color:#64748b;font-size:13px">${fmtDate(lead.updatedAt)}</td>
+          <td>
+            <div class="actions">
+              <button class="btn btn-secondary btn-sm" onclick="editLead('${lead.id}',event)">Edit</button>
+              <button class="btn btn-danger btn-sm" onclick="deleteLead('${lead.id}',event)">Delete</button>
+            </div>
+          </td>`;
+        tr.onclick = () => toggleNotes(lead.id);
+        tbody.appendChild(tr);
+
+        // Notes row
+        const nr = document.createElement('tr');
+        nr.className = 'notes-row';
+        nr.id = 'notes-' + lead.id;
+
+        let historyHTML;
+        if (history.length === 0) {
+          historyHTML = '<em style="color:#cbd5e1">No notes added yet.</em>';
+        } else {
+          historyHTML = '<ul class="notes-history">' +
+            [...history].reverse().map(h =>
+              `<li><span class="note-date">${fmtDateTime(h.date)}</span>${esc(h.text)}</li>`
+            ).join('') + '</ul>';
+        }
+
+        nr.innerHTML = `<td colspan="6"><strong style="color:#334155;font-size:12px;text-transform:uppercase;letter-spacing:0.4px">Notes History</strong><div style="margin-top:8px">${historyHTML}</div></td>`;
+        tbody.appendChild(nr);
+      });
+    }
+
+    renderStats();
+  }
+
+  function toggleNotes(id) {
+    const nr = document.getElementById('notes-' + id);
+    if (nr) nr.classList.toggle('open');
+  }
+
+  // ── Modal ──────────────────────────────────────────────────
+  function openModal(lead) {
+    document.getElementById('modal-title').textContent = lead ? 'Edit Lead' : 'Add Lead';
+    document.getElementById('edit-id').value = lead ? lead.id : '';
+    document.getElementById('f-name').value = lead ? lead.name : '';
+    document.getElementById('f-address').value = lead ? lead.address : '';
+    document.getElementById('f-phone').value = lead ? (lead.phone || '') : '';
+    document.getElementById('f-email').value = lead ? (lead.email || '') : '';
+    document.getElementById('f-status').value = lead ? lead.status : 'New';
+
+    const history = lead && lead.notesHistory || [];
+    const latestNote = history.length > 0 ? history[history.length - 1].text : (lead ? lead.notes || '' : '');
+    document.getElementById('f-notes').value = latestNote;
+
+    document.getElementById('lead-modal').classList.add('open');
+    setTimeout(() => document.getElementById('f-name').focus(), 50);
+  }
+
+  function closeModal() {
+    document.getElementById('lead-modal').classList.remove('open');
+  }
+
+  function saveLead() {
+    const name = document.getElementById('f-name').value.trim();
+    const address = document.getElementById('f-address').value.trim();
+    if (!name) { alert('Name is required.'); document.getElementById('f-name').focus(); return; }
+    if (!address) { alert('Address is required.'); document.getElementById('f-address').focus(); return; }
+
+    const leads = load();
+    const editId = document.getElementById('edit-id').value;
+    const newNote = document.getElementById('f-notes').value.trim();
+    const now = new Date().toISOString();
+
+    if (editId) {
+      const idx = leads.findIndex(l => l.id === editId);
+      if (idx !== -1) {
+        const lead = leads[idx];
+        if (!lead.notesHistory) lead.notesHistory = [];
+        if (lead.notes && lead.notesHistory.length === 0) {
+          lead.notesHistory.push({ date: lead.createdAt || now, text: lead.notes });
+        }
+        const oldLatest = lead.notesHistory.length > 0
+          ? lead.notesHistory[lead.notesHistory.length - 1].text : '';
+        if (newNote && newNote !== oldLatest) {
+          lead.notesHistory.push({ date: now, text: newNote });
+        }
+        leads[idx] = { ...lead,
+          name, address,
+          phone: document.getElementById('f-phone').value.trim(),
+          email: document.getElementById('f-email').value.trim(),
+          status: document.getElementById('f-status').value,
+          notes: newNote,
+          updatedAt: now,
+        };
+      }
+    } else {
+      const history = newNote ? [{ date: now, text: newNote }] : [];
+      leads.push({
+        id: uid(), name, address,
+        phone: document.getElementById('f-phone').value.trim(),
+        email: document.getElementById('f-email').value.trim(),
+        status: document.getElementById('f-status').value,
+        notes: newNote,
+        notesHistory: history,
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+
+    save(leads);
+    closeModal();
+    render();
+  }
+
+  function editLead(id, e) {
+    e.stopPropagation();
+    const lead = load().find(l => l.id === id);
+    if (lead) openModal(lead);
+  }
+
+  function deleteLead(id, e) {
+    e.stopPropagation();
+    if (!confirm('Delete this lead? This cannot be undone.')) return;
+    save(load().filter(l => l.id !== id));
+    render();
+  }
+
+  // ── Export ─────────────────────────────────────────────────
+  function openExport() {
+    document.getElementById('export-filter').value = '';
+    updateExportText();
+    document.getElementById('export-modal').classList.add('open');
+  }
+
+  function closeExport() {
+    document.getElementById('export-modal').classList.remove('open');
+  }
+
+  function updateExportText() {
+    const filter = document.getElementById('export-filter').value;
+    const leads = load();
+    const filtered = (filter ? leads.filter(l => l.status === filter) : leads)
+      .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+
+    const today = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+    let text = `LEADS EXPORT — RYNSE CLEANING\n`;
+    text += `Date: ${today}\n`;
+    text += `Filter: ${filter || 'All Leads'} | Count: ${filtered.length}\n`;
+    text += '─'.repeat(55) + '\n\n';
+
+    if (filtered.length === 0) {
+      text += '(No leads match this filter)\n';
+    } else {
+      filtered.forEach((l, i) => {
+        const history = l.notesHistory || [];
+        const latestNote = history.length > 0
+          ? history[history.length - 1].text
+          : (l.notes || 'No notes');
+        text += `${i + 1}. ${l.name}\n`;
+        text += `   Address: ${l.address}\n`;
+        text += `   Phone:   ${l.phone || 'none'}\n`;
+        if (l.email) text += `   Email:   ${l.email}\n`;
+        text += `   Status:  ${l.status}\n`;
+        text += `   Notes:   ${latestNote}\n`;
+        text += `   Updated: ${fmtDate(l.updatedAt)}\n\n`;
+      });
+    }
+
+    document.getElementById('export-text').textContent = text;
+  }
+
+  function copyExport() {
+    const text = document.getElementById('export-text').textContent;
+    navigator.clipboard.writeText(text).then(() => {
+      const btn = document.getElementById('copy-btn');
+      btn.textContent = 'Copied!';
+      btn.classList.add('copy-confirm');
+      setTimeout(() => { btn.textContent = 'Copy to Clipboard'; btn.classList.remove('copy-confirm'); }, 2000);
+    });
+  }
+
+  // Close on overlay click or Escape
+  document.getElementById('lead-modal').addEventListener('click', e => { if (e.target.id === 'lead-modal') closeModal(); });
+  document.getElementById('export-modal').addEventListener('click', e => { if (e.target.id === 'export-modal') closeExport(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeModal(); closeExport(); } });
+
+  // Date in header
+  document.getElementById('date-display').textContent =
+    new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+
+  render();
+</script>
+</body>
+</html>
