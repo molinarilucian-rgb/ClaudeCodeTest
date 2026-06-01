@@ -83,6 +83,10 @@
 
     .export-text { background: #f8fafc; border-radius: 6px; padding: 14px; font-size: 12px; font-family: 'Consolas', 'Courier New', monospace; white-space: pre-wrap; max-height: 380px; overflow-y: auto; border: 1px solid #e2e8f0; line-height: 1.6; }
     .copy-confirm { color: #15803d; font-weight: 600; }
+    .phone-input-wrap { display: flex; align-items: center; border: 1px solid #e2e8f0; border-radius: 6px; overflow: hidden; }
+    .phone-input-wrap:focus-within { border-color: #0ea5e9; box-shadow: 0 0 0 3px rgba(14,165,233,0.1); }
+    .phone-prefix { padding: 9px 8px 9px 12px; background: #f8fafc; color: #64748b; font-size: 14px; font-weight: 600; border-right: 1px solid #e2e8f0; user-select: none; }
+    .phone-input-wrap input { border: none !important; box-shadow: none !important; border-radius: 0 6px 6px 0; flex: 1; min-width: 0; }
   </style>
 </head>
 <body>
@@ -164,7 +168,10 @@
       <div class="form-row">
         <div class="form-group">
           <label>Phone</label>
-          <input type="tel" id="f-phone" placeholder="(818) 000-0000">
+          <div class="phone-input-wrap">
+            <span class="phone-prefix">+1</span>
+            <input type="tel" id="f-phone" placeholder="818 264 5223">
+          </div>
         </div>
         <div class="form-group">
           <label>Email (optional)</label>
@@ -362,13 +369,21 @@
     if (nr) nr.classList.toggle('open');
   }
 
+  function formatPhone(raw) {
+    const digits = raw.replace(/\D/g, '');
+    if (digits.length === 10) return '+1' + digits;
+    if (digits.length === 11 && digits[0] === '1') return '+' + digits;
+    return raw;
+  }
+
   // ── Modal ──────────────────────────────────────────────────
   function openModal(lead) {
     document.getElementById('modal-title').textContent = lead ? 'Edit Lead' : 'Add Lead';
     document.getElementById('edit-id').value = lead ? lead.id : '';
     document.getElementById('f-name').value = lead ? lead.name : '';
     document.getElementById('f-address').value = lead ? lead.address : '';
-    document.getElementById('f-phone').value = lead ? (lead.phone || '') : '';
+    const rawPhone = lead ? (lead.phone || '') : '';
+    document.getElementById('f-phone').value = rawPhone.startsWith('+1') ? rawPhone.slice(2) : rawPhone;
     document.getElementById('f-email').value = lead ? (lead.email || '') : '';
     document.getElementById('f-status').value = lead ? lead.status : 'New';
 
@@ -410,7 +425,7 @@
         }
         leads[idx] = { ...lead,
           name, address,
-          phone: document.getElementById('f-phone').value.trim(),
+          phone: formatPhone(document.getElementById('f-phone').value.trim()),
           email: document.getElementById('f-email').value.trim(),
           status: document.getElementById('f-status').value,
           notes: newNote,
@@ -421,7 +436,7 @@
       const history = newNote ? [{ date: now, text: newNote }] : [];
       leads.push({
         id: uid(), name, address,
-        phone: document.getElementById('f-phone').value.trim(),
+        phone: formatPhone(document.getElementById('f-phone').value.trim()),
         email: document.getElementById('f-email').value.trim(),
         status: document.getElementById('f-status').value,
         notes: newNote,
