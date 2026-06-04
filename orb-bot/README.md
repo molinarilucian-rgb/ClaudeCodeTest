@@ -41,7 +41,8 @@ TIMEZONE=America/New_York
 
 ```bash
 npm run check    # verify Alpaca connection + account
-npm run scan     # run the universe scanner
+npm run scan     # run the universe scanner (liquidity/price/exchange filters)
+npm run gapscan  # full pre-market scan: gaps + Perplexity catalyst filter → DB
 ```
 
 ## Project structure
@@ -50,9 +51,13 @@ npm run scan     # run the universe scanner
 orb-bot/
   config/config.js        # all strategy params — nothing hardcoded
   src/
-    data/marketData.js    # Alpaca SDK wrapper (account, assets, bars, snapshots) + backoff
+    data/
+      marketData.js        # Alpaca SDK wrapper (account, assets, bars, snapshots) + backoff
+      perplexity.js        # catalyst classifier (Perplexity live web search)
+      database.js          # node:sqlite persistence (watchlist/trades + catalyst)
     scanners/
       universeScanner.js   # universe filters → qualified candidates  [Phase 1]
+      gapScanner.js        # gaps → catalyst classify → quality filter → DB
     utils/
       logger.js            # winston (console + daily file)
       timeUtils.js         # dayjs ET timezone, trading-day/holiday helpers
@@ -60,6 +65,41 @@ orb-bot/
   logs/                   # generated, git-ignored
   reports/                # generated, git-ignored
 ```
+
+## Catalyst classification (Perplexity)
+
+The gap scanner sends each gapping stock to Perplexity (live web search) to
+identify *why* it's moving, then filters out low-quality gaps. For each survivor
+it returns a structured record:
+
+```json
+{
+  "catalyst_type": "earnings | guidance | mna | analyst_rating | product_news | ...",
+  "catalyst_summary": "one factual sentence with the specific news",
+  "quality": "high | medium | low | none",
+  "sentiment": "bullish | bearish | neutral",
+  "tradeable": true,
+  "confidence": 0.0-1.0
+}
+```
+
+**Filtering rules** (config `catalyst`):
+- Drop gaps with quality below `minQuality` (default `medium`).
+- Drop `tradeable: false` (e.g. pure low-float pumps, no news).
+- Drop fade-prone catalysts on gap-UPs (e.g. `offering_dilution`).
+- **Fail-open**: if Perplexity errors/times out, the gap is kept and marked
+  `unknown` (set `catalyst.failOpen=false` to drop instead).
+
+The classification is **persisted on every watchlist row** and copied onto each
+`trades` row (`catalyst_type`, `catalyst_quality`, `catalyst_sentiment`) when a
+trade fires in Phase 3 — so you can later answer "which catalyst types actually
+produced winning ORB trades?"
+
+> **After-hours caveat:** `gap_pct` and `pm_volume` come from the snapshot
+> (latest price vs. previous close; today's accumulating daily volume). During
+> the bot's real 7–9 AM ET scan these are true pre-market figures. Run outside
+> pre-market (e.g. testing at night) they reflect the just-closed session, so
+> treat the *pipeline* as validated, not the specific gap numbers.
 
 ## ⚠️ Data Limitations (read before trusting scan output)
 

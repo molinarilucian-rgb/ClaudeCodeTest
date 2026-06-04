@@ -26,6 +26,11 @@ export const config = {
     maxRiskPerTrade: Number(process.env.MAX_RISK_PER_TRADE || 0.01),
   },
 
+  perplexity: {
+    apiKey: process.env.PERPLEXITY_API_KEY || '',
+    baseUrl: 'https://api.perplexity.ai/chat/completions',
+  },
+
   timezone: process.env.TIMEZONE || 'America/New_York',
 
   // ----- Universe filters (spec: Stock Selection Criteria) -----
@@ -55,7 +60,32 @@ export const config = {
   // ----- Pre-market gap filter -----
   gap: {
     minAbsGapPct: 1.0, // |pre-market change| > 1%
-    minPreMarketVolume: 100_000, // shares before 9:30
+    // Spec target 100K consolidated; IEX feed sees a fraction, so scaled down.
+    // Restore to 100_000 on SIP feed (see README data limitations).
+    minPreMarketVolume: 3_000, // IEX-scaled proxy (spec: 100_000 on SIP)
+    minPreMarketVolumeSip: 100_000,
+  },
+
+  // ----- Catalyst classification (Perplexity) -----
+  catalyst: {
+    enabled: true,
+    model: 'sonar',
+    // Catalyst types we ask Perplexity to bucket into.
+    types: [
+      'earnings', 'guidance', 'mna', 'analyst_rating', 'product_news',
+      'regulatory', 'legal', 'offering_dilution', 'macro_sector',
+      'insider_activity', 'no_catalyst', 'unknown',
+    ],
+    // Drop gaps whose catalyst quality is at/below this rank.
+    // quality scale: high > medium > low > none
+    minQuality: 'medium',
+    // Catalyst types that make a gap UP fade-prone (reject even if news exists).
+    fadeProneOnGapUp: ['offering_dilution'],
+    // If Perplexity fails/timeouts, keep the gap but mark catalyst unknown
+    // (true) vs. drop it (false). Fail-open by default so data issues don't
+    // silently shrink the watchlist.
+    failOpen: true,
+    requestTimeoutMs: 25_000,
   },
 
   // ----- Final selection -----

@@ -7,6 +7,7 @@
   "scripts": {
     "start": "node src/bot.js --mode=paper",
     "scan": "node src/scanners/universeScanner.js",
+    "gapscan": "node src/scanners/gapScanner.js",
     "backtest": "node src/backtest.js",
     "check": "node src/data/marketData.js"
   },

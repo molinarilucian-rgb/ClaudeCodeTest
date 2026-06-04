@@ -96,12 +96,18 @@ export async function getMinuteBars(symbol, startIso, endIso) {
   }, `getMinuteBars ${symbol}`);
 }
 
-/** Snapshot (latest trade/quote, daily & prev-daily bar) for many symbols. */
+/**
+ * Snapshot (latest trade/quote, daily & prev-daily bar) for many symbols.
+ * Note: the snapshots endpoint has no feed param in this SDK — it serves the
+ * account's default feed (IEX on the free plan), which is what we want here.
+ */
 export async function getSnapshots(symbols) {
-  return withRetry(
-    () => alpaca.getSnapshots(symbols, { feed: DATA_FEED }),
+  const list = await withRetry(
+    () => alpaca.getSnapshots(symbols),
     `getSnapshots(${symbols.length})`
   );
+  // SDK returns an array of snapshot entities keyed by .symbol — index by symbol.
+  return Object.fromEntries(list.map((s) => [s.symbol, s]));
 }
 
 /** Market calendar entries (for holiday/half-day awareness). */
