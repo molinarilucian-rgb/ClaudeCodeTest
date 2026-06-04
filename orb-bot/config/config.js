@@ -34,7 +34,11 @@ export const config = {
     exchanges: ['NYSE', 'NASDAQ'],
     minPrice: 20,
     maxPrice: 1000,
-    minAvgDailyVolume: 5_000_000, // 20-day average
+    // Spec target is 5,000,000 (consolidated/SIP). On the free IEX feed, volume
+    // is only ~2-3% of consolidated, so we use an IEX-scaled proxy (~150K) as a
+    // liquidity filter. RESTORE to 5_000_000 when upgrading to ALPACA_DATA_FEED=sip.
+    minAvgDailyVolume: 150_000, // IEX-scaled proxy (spec: 5_000_000 on SIP)
+    minAvgDailyVolumeSip: 5_000_000, // the real target once on SIP feed
     avgVolumeLookbackDays: 20,
     // Filters Alpaca's standard API can't satisfy directly — see README "Data Limitations".
     // Enforced via external data when wired up (Phase 2+). Flagged on each candidate for now.
