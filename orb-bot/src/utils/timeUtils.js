@@ -26,6 +26,10 @@ export const etTimeStr = (t = nowEt()) => toEt(t).format('HH:mm');
 /** "YYYY-MM-DD" ET date string. */
 export const etDateStr = (t = nowEt()) => toEt(t).format('YYYY-MM-DD');
 
+/** Convert an ET wall-clock date+time ("YYYY-MM-DD", "HH:mm") to a UTC ISO string. */
+export const etToIso = (dateStr, hhmm) =>
+  dayjs.tz(`${dateStr} ${hhmm}`, TZ).toDate().toISOString();
+
 /** Build a dayjs at a specific ET "HH:mm" for today's ET date. */
 export const etTimeToday = (hhmm) => {
   const [h, m] = hhmm.split(':').map(Number);
@@ -55,6 +59,6 @@ export const isMarketHours = (t = nowEt()) => {
 };
 
 export default {
-  nowEt, toEt, etTimeStr, etDateStr, etTimeToday, isPastEt,
+  nowEt, toEt, etTimeStr, etDateStr, etToIso, etTimeToday, isPastEt,
   isWeekend, isHoliday, isTradingDay, isMarketHours,
 };

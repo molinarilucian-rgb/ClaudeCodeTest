@@ -1,10 +1,14 @@
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import { existsSync } from 'fs';
 
 const __dir = dirname(fileURLToPath(import.meta.url));
-// .env lives at the project root (one level up from /config)
-dotenv.config({ path: join(__dir, '..', '.env') });
+// Local dev loads a .env file; in the cloud (Railway) the variables are injected
+// straight into process.env from the dashboard, so a missing .env is expected.
+// dotenv never overrides vars already present in process.env, so dashboard wins.
+const envPath = join(__dir, '..', '.env');
+if (existsSync(envPath)) dotenv.config({ path: envPath });
 
 function required(name) {
   const v = process.env[name];

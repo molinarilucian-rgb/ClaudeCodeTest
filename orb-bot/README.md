@@ -15,7 +15,7 @@ variations in parallel. See `orb_strategy_spec.md` for the full specification.
 | 3. Execution | Sizing, limit orders, stops/targets, EOD close | ⬜ |
 | 4. Multi-strategy | 9 variations in parallel, independent P&L | ⬜ |
 | 5. Backtesting | Historical replay + metrics | ⬜ |
-| 6. Live paper | node-cron schedule, alerts, daily reports | ⬜ |
+| **6. Live paper** | node-cron schedule ✅ · cloud deploy ✅ · alerts ⬜ · reports ⬜ | 🔨 partial |
 | 7. Dashboard (opt) | Express + WebSocket | ⬜ |
 
 ## Setup
@@ -25,16 +25,12 @@ cd orb-bot
 npm install
 ```
 
-Create `.env` (already present locally, git-ignored):
+For **local dev**, copy `.env.example` to `.env` and fill in real values
+(`.env` is git-ignored). For **cloud deploy**, set the same variables in the
+Railway dashboard instead — see "Deploying to Railway.app" below.
 
-```
-ALPACA_API_KEY=...
-ALPACA_SECRET_KEY=...
-ALPACA_BASE_URL=https://paper-api.alpaca.markets
-ALPACA_DATA_URL=https://data.alpaca.markets
-ACCOUNT_SIZE=100000
-MAX_RISK_PER_TRADE=0.01
-TIMEZONE=America/New_York
+```bash
+cp .env.example .env   # then edit .env with your keys
 ```
 
 ## Commands
@@ -116,6 +112,53 @@ produced winning ORB trades?"
 > the bot's real 7–9 AM ET scan these are true pre-market figures. Run outside
 > pre-market (e.g. testing at night) they reflect the just-closed session, so
 > treat the *pipeline* as validated, not the specific gap numbers.
+
+## Running the bot
+
+```bash
+npm start                 # start the scheduler/worker (what Railway runs)
+node src/bot.js --check   # validate startup + connection + schedule, then exit
+```
+
+The worker schedules everything in **America/New_York** (so jobs fire at the
+right ET market time regardless of host timezone): wake-up/account check 04:00,
+pre-market gap scan 09:00, opening-range capture 10:05, heartbeat every 30 min.
+
+> **What it does today:** builds & logs the daily watchlist and opening ranges.
+> **What it does NOT do yet:** breakout detection & order execution (Phases 3–4),
+> so it places **no trades**. The logs say so explicitly on every startup.
+
+## Deploying to Railway.app
+
+The bot runs as a long-lived **worker** (no web port needed). Config files:
+`Procfile`, `railway.json`, `.nvmrc` (pins Node 24 — required for the built-in
+`node:sqlite`).
+
+1. **Push to GitHub** (already done if you're reading this in the repo).
+2. In Railway: **New Project → Deploy from GitHub repo**, pick this repo. Set the
+   service **root directory** to `orb-bot` (the app isn't at the repo root).
+3. **Add environment variables** in the service's **Variables** tab — do NOT use
+   a `.env` file (it's git-ignored and never deployed). Copy the keys from
+   `.env.example`:
+   - `ALPACA_API_KEY`, `ALPACA_SECRET_KEY`
+   - `ALPACA_BASE_URL=https://paper-api.alpaca.markets`
+   - `ALPACA_DATA_URL=https://data.alpaca.markets`
+   - `ACCOUNT_SIZE`, `MAX_RISK_PER_TRADE`, `TIMEZONE=America/New_York`
+   - `PERPLEXITY_API_KEY`
+4. Railway builds with Nixpacks and runs `node src/bot.js` (from `railway.json`).
+   If it picks the wrong Node version, set `NIXPACKS_NODE_VERSION=24` as a variable.
+5. **Monitor from your phone:** open the service in the Railway app/website → the
+   **Deploy Logs / Logs** tab streams console output live (timestamps are in ET).
+   You'll see the startup banner, the scheduled-jobs list, heartbeats every 30
+   min, and each morning's scan + opening ranges.
+
+**Notes**
+- A persistent worker bills continuously on Railway (it sleeps between jobs but
+  stays resident). That's expected for a cron-style scheduler.
+- The SQLite DB lives on the container's **ephemeral** disk and resets on every
+  redeploy. Fine for now (state rebuilds each morning); attach a Railway **Volume**
+  at `orb-bot/data` later if you want trade history to persist across deploys.
+- Credentials live only in Railway's dashboard, never in git.
 
 ## ⚠️ Data Limitations (read before trusting scan output)
 

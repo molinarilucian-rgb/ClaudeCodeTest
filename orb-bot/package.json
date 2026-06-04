@@ -5,7 +5,7 @@
   "type": "module",
   "main": "src/bot.js",
   "scripts": {
-    "start": "node src/bot.js --mode=paper",
+    "start": "node src/bot.js",
     "scan": "node src/scanners/universeScanner.js",
     "gapscan": "node src/scanners/gapScanner.js",
     "or": "node src/strategy/openingRange.js",
@@ -17,7 +17,7 @@
     "smoke": "node tests/live-smoke.js"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=22.5.0"
   },
   "dependencies": {
     "@alpacahq/alpaca-trade-api": "^3.1.3",

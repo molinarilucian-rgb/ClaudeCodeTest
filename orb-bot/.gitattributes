@@ -1,0 +1,8 @@
+# This app is built/run on Linux (Railway). Force LF so CRLF from a Windows
+# checkout never breaks deploy-critical files (e.g. Nixpacks reading .nvmrc).
+* text=auto eol=lf
+*.js text eol=lf
+*.json text eol=lf
+.nvmrc text eol=lf
+Procfile text eol=lf
+.env.example text eol=lf

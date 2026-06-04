@@ -3,37 +3,41 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { mkdirSync } from 'fs';
 
-const __dir = dirname(fileURLToPath(import.meta.url));
-const logsDir = join(__dir, '..', '..', 'logs');
-mkdirSync(logsDir, { recursive: true });
+const { combine, printf, colorize } = winston.format;
 
-const { combine, timestamp, printf, colorize, errors } = winston.format;
+// Timestamps in ET so logs line up with the market times the strategy reasons
+// about (09:30 ET open), regardless of the host/container timezone.
+const etStamp = () => new Intl.DateTimeFormat('en-US', {
+  timeZone: process.env.TIMEZONE || 'America/New_York',
+  hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit',
+}).format(new Date());
 
-const lineFormat = printf(({ level, message, timestamp, stack, ...meta }) => {
-  const metaStr = Object.keys(meta).length ? ` ${JSON.stringify(meta)}` : '';
-  return `${timestamp} [${level}] ${stack || message}${metaStr}`;
+const lineFormat = printf(({ level, message, stack }) => {
+  return `${etStamp()} ET [${level}] ${stack || message}`;
 });
+
+// Console is the primary sink — this is what Railway captures and shows in its
+// dashboard. File logging is opt-in (LOG_TO_FILE=true) since container disks are
+// ephemeral and wiped on every redeploy.
+const transports = [
+  new winston.transports.Console({
+    format: combine(colorize(), lineFormat),
+  }),
+];
+
+if (process.env.LOG_TO_FILE === 'true') {
+  const logsDir = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'logs');
+  mkdirSync(logsDir, { recursive: true });
+  transports.push(new winston.transports.File({
+    filename: join(logsDir, `${new Date().toISOString().slice(0, 10)}.log`),
+    format: lineFormat,
+  }));
+}
 
 export const logger = winston.createLogger({
   level: process.env.LOG_LEVEL || 'info',
-  format: combine(
-    errors({ stack: true }),
-    timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
-    lineFormat
-  ),
-  transports: [
-    new winston.transports.Console({
-      format: combine(
-        colorize(),
-        timestamp({ format: 'HH:mm:ss' }),
-        lineFormat
-      ),
-    }),
-    // One rolling file per day (date set at startup; the scheduler restarts daily).
-    new winston.transports.File({
-      filename: join(logsDir, `${new Date().toISOString().slice(0, 10)}.log`),
-    }),
-  ],
+  format: winston.format.errors({ stack: true }),
+  transports,
 });
 
 export default logger;
