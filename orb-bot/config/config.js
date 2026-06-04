@@ -10,16 +10,28 @@ const __dir = dirname(fileURLToPath(import.meta.url));
 const envPath = join(__dir, '..', '.env');
 if (existsSync(envPath)) dotenv.config({ path: envPath });
 
-function required(name) {
-  const v = process.env[name];
-  if (!v) throw new Error(`Missing required env var: ${name}`);
-  return v;
+// Only the Alpaca credentials are strictly required to boot; everything else
+// has a safe default (Perplexity/Discord degrade gracefully when unset).
+// Collect ALL missing required vars and report them together with a clear,
+// actionable message — then exit cleanly instead of throwing a raw stack trace.
+const REQUIRED = ['ALPACA_API_KEY', 'ALPACA_SECRET_KEY'];
+const missing = REQUIRED.filter((name) => !process.env[name]);
+if (missing.length) {
+  console.error('\n========================================================');
+  console.error(' ORB Bot cannot start — missing environment variable(s):');
+  for (const name of missing) console.error(`   • ${name}`);
+  console.error('');
+  console.error(' Set these in Railway → your service → Variables tab');
+  console.error(' (or in a local .env file for local runs).');
+  console.error(' Full list of variables is in .env.example.');
+  console.error('========================================================\n');
+  process.exit(1);
 }
 
 export const config = {
   alpaca: {
-    keyId: required('ALPACA_API_KEY'),
-    secretKey: required('ALPACA_SECRET_KEY'),
+    keyId: process.env.ALPACA_API_KEY,
+    secretKey: process.env.ALPACA_SECRET_KEY,
     baseUrl: process.env.ALPACA_BASE_URL || 'https://paper-api.alpaca.markets',
     dataUrl: process.env.ALPACA_DATA_URL || 'https://data.alpaca.markets',
     paper: true, // NEVER flip to live in this phase
