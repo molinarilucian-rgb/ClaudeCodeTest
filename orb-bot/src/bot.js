@@ -1,77 +1,141 @@
 import cron from 'node-cron';
 import config from '../config/config.js';
 import logger from './utils/logger.js';
-import { nowEt, etDateStr, etToIso, isTradingDay } from './utils/timeUtils.js';
+import { nowEt, etDateStr, etToIso, isTradingDay, isHoliday } from './utils/timeUtils.js';
 import { getAccount, getMinuteBars } from './data/marketData.js';
 import { scanGaps } from './scanners/gapScanner.js';
-import { computeAllOpeningRanges, minutesFromOpen } from './strategy/openingRange.js';
+import { computeOpeningRange, computeAllOpeningRanges, minutesFromOpen } from './strategy/openingRange.js';
 import { detectBreakout, ENTRY_CUTOFF_OFFSET } from './strategy/breakoutDetector.js';
-import { sendBreakoutAlert } from './notify/discord.js';
+import { sendDiscord, sendBreakoutAlert } from './notify/discord.js';
 import { getWatchlist, saveOpeningRange } from './data/database.js';
 
 /**
- * ORB Bot — main entry point / scheduler (Phase 6, partial).
- * -----------------------------------------------------------
- * Runs as a long-lived worker (e.g. on Railway). All jobs are scheduled in the
- * America/New_York timezone so they fire at the correct ET market times no
- * matter what timezone the host/container runs in.
+ * ORB Bot — main entry / scheduler (Phase 6, morning timeline).
+ * -------------------------------------------------------------
+ * Long-lived worker (Railway/PM2). All jobs are scheduled in America/New_York
+ * so they fire at the correct ET market time regardless of host timezone.
  *
- * IMPLEMENTED today: pre-market scan → watchlist, opening-range capture.
- * NOT YET implemented: breakout detection & order execution (Phases 3–4).
- * The bot therefore does NOT place any trades yet — it builds and logs the
- * daily watchlist and opening ranges so you can watch it run in the cloud.
+ * IMPLEMENTED (Phases 1–2): pre-market scans → watchlist, opening-range locks
+ * (5/15/30-min), breakout detection → Discord signal alerts.
+ * NOT implemented (Phases 3–4): order execution, position management, EOD
+ * close, P&L/reports. Those afternoon steps are intentionally OMITTED rather
+ * than faked — the bot places NO trades and reports NO trade results.
  */
 
 const TZ = config.timezone;
 
+// De-dup: at most one breakout alert per symbol+timeframe+direction per day.
+const alertedSignals = new Set();
+
+// ---- Discord helper ----
+async function notify(content) {
+  const ok = await sendDiscord({ content });
+  if (!ok) logger.warn('Discord message not delivered (check DISCORD_WEBHOOK_URL)');
+  return ok;
+}
+
+// ---- Connection helper: retry every 60s for up to 10 min ----
+async function verifyConnection({ maxMs = 10 * 60 * 1000, intervalMs = 60 * 1000 } = {}) {
+  const deadline = Date.now() + maxMs;
+  for (;;) {
+    try {
+      return await getAccount();
+    } catch (err) {
+      if (Date.now() + intervalMs > deadline) throw err;
+      logger.warn(`Connection check failed, retrying in ${intervalMs / 1000}s: ${err.message}`);
+      await new Promise((r) => setTimeout(r, intervalMs));
+    }
+  }
+}
+
 // ---- Jobs ----
 
+// 05:00 — wake up, verify connection (with retry), holiday stand-down.
 async function jobWakeUp() {
   alertedSignals.clear(); // reset daily de-dup
-  const acct = await getAccount();
-  logger.info(`Awake. Account ${acct.account_number} | status=${acct.status} | buying_power=$${acct.buying_power} | cash=$${acct.cash}`);
-}
-
-async function jobGapScan() {
-  const { selected, evaluated } = await scanGaps();
-  logger.info(`Pre-market scan: ${evaluated.length} evaluated → ${selected.length} selected`);
-  for (const s of selected) {
-    logger.info(`  • ${s.symbol}  gap ${s.gapPct >= 0 ? '+' : ''}${s.gapPct.toFixed(2)}%  [${s.catalyst.catalyst_type}/${s.catalyst.quality}]  ${(s.catalyst.catalyst_summary || '').slice(0, 70)}`);
+  if (isHoliday()) {
+    logger.info('Market holiday today — standing down.');
+    await notify('📅 Market closed today. Bot standing down.');
+    return;
   }
-  if (!selected.length) logger.warn('  (no symbols passed the gap + catalyst filters today)');
+  try {
+    const acct = await verifyConnection();
+    logger.info(`Bot awake. Connection verified. Market open today. Account ${acct.account_number} | buying_power $${acct.buying_power}`);
+  } catch (err) {
+    logger.error(`API connection FAILED after retry window: ${err.message}`);
+    await notify('🚨 ORB BOT — API CONNECTION FAILED. Manual check required.');
+  }
 }
 
-async function jobOpeningRangeCapture() {
+// 07:00 / 08:00 — scan and log the full ranked candidate list (no Discord).
+async function jobScanPreview(label) {
+  const { selected, evaluated } = await scanGaps();
+  const ranked = [...evaluated].sort((a, b) => b.rankScore - a.rankScore);
+  logger.info(`${label}: ${evaluated.length} candidates evaluated, top picks: ${selected.map((s) => s.symbol).join(', ') || 'none'}`);
+  for (const c of ranked) {
+    logger.info(`   ${c.symbol.padEnd(6)} gap ${(c.gapPct >= 0 ? '+' : '') + c.gapPct.toFixed(2)}%  pmVol ${Number(c.pmVolume).toLocaleString()}  score ${Math.round(c.rankScore).toLocaleString()}  ${c.catalyst.catalyst_type}/${c.catalyst.quality}  keep=${c.qualityOk}`);
+  }
+}
+
+// 09:00 — final scan, select top 5, persist, Discord watchlist.
+async function jobFinalScan() {
+  const { selected } = await scanGaps();
+  if (!selected.length) {
+    logger.warn('Final scan: no symbols passed the gap + catalyst filters.');
+    await notify('📋 TODAY\'S WATCHLIST\nNo symbols passed the gap + catalyst filters today.');
+    return;
+  }
+  const lines = selected.map((s, i) =>
+    `${i + 1}. ${s.symbol} | Gap: ${s.gapPct >= 0 ? '+' : ''}${s.gapPct.toFixed(1)}% | PM Vol: ${Number(s.pmVolume).toLocaleString()} | Score: ${Math.round(s.rankScore).toLocaleString()} | ${s.catalyst.catalyst_type}`
+  );
+  for (const s of selected) logger.info(`watchlist: ${s.symbol} gap ${s.gapPct.toFixed(2)}% [${s.catalyst.catalyst_type}/${s.catalyst.quality}]`);
+  await notify(`📋 TODAY'S WATCHLIST\n${lines.join('\n')}\nMarket opens in 30 minutes.`);
+}
+
+// 09:25 — pre-open prep: connection re-check, confirm watchlist, reset state.
+async function jobPreOpen() {
+  const acct = await getAccount();
   const date = etDateStr();
-  const watchlist = getWatchlist(date).filter((r) => r.selected);
-  if (!watchlist.length) {
-    logger.warn('OR capture: no selected watchlist for today — did the pre-market scan run?');
+  const wl = getWatchlist(date).filter((r) => r.selected);
+  logger.info(`Pre-open: connection OK (${acct.account_number}). Watchlist (${wl.length}): ${wl.map((r) => r.symbol).join(', ') || 'EMPTY'}`);
+  logger.info('Note: bars are polled via REST (no websocket stream yet); OR locks use 1-min bars.');
+  alertedSignals.clear();
+  if (!wl.length) {
+    await notify('⚠️ Market opens in 5 minutes — but the watchlist is EMPTY (no qualifying gaps). No signals expected today.');
+    return;
+  }
+  await notify('⏰ Market opens in 5 minutes. All systems go.');
+}
+
+// 09:35 / 09:45 / 10:00 — lock the OR for one timeframe and Discord it.
+async function lockOpeningRange(tf, headerSuffix = '') {
+  const date = etDateStr();
+  const wl = getWatchlist(date).filter((r) => r.selected);
+  if (!wl.length) {
+    logger.warn(`OR ${tf}m lock: no watchlist — skipping.`);
     return;
   }
   const startIso = etToIso(date, '09:30');
-  const endIso = etToIso(date, '10:05');
-  for (const row of watchlist) {
-    const bars = await getMinuteBars(row.symbol, startIso, endIso);
-    const ranges = computeAllOpeningRanges(bars);
-    for (const r of Object.values(ranges)) {
-      if (r.orComplete) {
-        saveOpeningRange(date, row.symbol, r.timeframe, r.orHigh, r.orLow, r.orCompleteTime);
-        logger.info(`OR ${row.symbol} ${r.timeframe}m: ${r.orLow?.toFixed(2)}–${r.orHigh?.toFixed(2)} (range ${(r.orHigh - r.orLow).toFixed(2)})`);
-      } else {
-        logger.warn(`OR ${row.symbol} ${r.timeframe}m incomplete (${bars.length} bars)`);
-      }
+  const nowIso = new Date().toISOString();
+  const lines = [];
+  for (const row of wl) {
+    const bars = await getMinuteBars(row.symbol, startIso, nowIso);
+    const or = computeOpeningRange(bars, tf);
+    if (or.orComplete && or.orHigh != null) {
+      saveOpeningRange(date, row.symbol, tf, or.orHigh, or.orLow, or.orCompleteTime);
+      lines.push(`${row.symbol}: High $${or.orHigh.toFixed(2)} | Low $${or.orLow.toFixed(2)} | Range: $${(or.orHigh - or.orLow).toFixed(2)}`);
+      logger.info(`OR ${row.symbol} ${tf}m locked: $${or.orLow.toFixed(2)}–$${or.orHigh.toFixed(2)}`);
+    } else {
+      lines.push(`${row.symbol}: OR ${tf}m incomplete (${bars.length} bars)`);
+      logger.warn(`OR ${row.symbol} ${tf}m incomplete (${bars.length} bars)`);
     }
   }
-  logger.info('Opening ranges captured. Breakout detection & execution: NOT yet implemented (Phases 3–4).');
+  await notify(`🔒 ${tf}-MIN OR LOCKED${headerSuffix}\n${lines.join('\n')}`);
 }
 
-// De-dup: at most one alert per symbol+timeframe+direction per day.
-// Cleared each morning by the wake-up job.
-const alertedSignals = new Set();
-
+// Every 30s in the entry window — detect breakouts, fire Discord alerts.
 async function jobMonitorBreakouts() {
   const nowOff = minutesFromOpen(new Date().toISOString());
-  // Only during the entry window: after the first (5-min) OR closes, before cutoff.
   if (nowOff < Math.min(...config.strategy.orTimeframes) || nowOff >= ENTRY_CUTOFF_OFFSET) return;
 
   const date = etDateStr();
@@ -88,11 +152,8 @@ async function jobMonitorBreakouts() {
 
     for (const tf of config.strategy.orTimeframes) {
       const signal = detectBreakout({
-        symbol: row.symbol,
-        timeframe: tf,
-        orState: ranges[tf],
-        sessionBars: bars,
-        gapPct: row.gap_pct,
+        symbol: row.symbol, timeframe: tf, orState: ranges[tf],
+        sessionBars: bars, gapPct: row.gap_pct,
       });
       if (!signal || !signal.triggered) continue;
 
@@ -107,18 +168,31 @@ async function jobMonitorBreakouts() {
   }
 }
 
+// 11:00 — close the entry window.
+async function jobEntryClose() {
+  logger.info('Entry window closed (11:00 ET). No new signals will be sent today.');
+  await notify('🚫 Entry window closed (11:00 ET). No new breakout signals today.');
+}
+
 function jobHeartbeat() {
   logger.info(`heartbeat — ${nowEt().format('YYYY-MM-DD HH:mm')} ET | trading_day=${isTradingDay()}`);
 }
 
-// ---- Schedule (cron expressions evaluated in ET) ----
-// min hour day month weekday   (1-5 = Mon–Fri)
+// ---- Schedule (cron evaluated in ET; weekday 1-5) ----
 const JOBS = [
-  { expr: '0 4 * * 1-5',    name: 'wake-up / account check',  fn: jobWakeUp,              tradingDayOnly: true },
-  { expr: '0 9 * * 1-5',    name: 'pre-market gap scan',      fn: jobGapScan,             tradingDayOnly: true },
-  { expr: '5 10 * * 1-5',   name: 'opening-range capture',    fn: jobOpeningRangeCapture, tradingDayOnly: true },
-  { expr: '*/2 9,10 * * 1-5', name: 'breakout monitor',       fn: jobMonitorBreakouts,    tradingDayOnly: true, quiet: true },
-  { expr: '*/30 * * * *',   name: 'heartbeat',                fn: jobHeartbeat,           tradingDayOnly: false },
+  // 5-field: min hour day month weekday
+  { expr: '0 5 * * 1-5',  name: '05:00 wake-up / connection',  fn: jobWakeUp,                       tradingDayOnly: false },
+  { expr: '0 7 * * 1-5',  name: '07:00 initial scan',          fn: () => jobScanPreview('07:00 initial scan'), tradingDayOnly: true },
+  { expr: '0 8 * * 1-5',  name: '08:00 refined scan',          fn: () => jobScanPreview('08:00 refined scan'), tradingDayOnly: true },
+  { expr: '0 9 * * 1-5',  name: '09:00 final scan + watchlist', fn: jobFinalScan,                   tradingDayOnly: true },
+  { expr: '25 9 * * 1-5', name: '09:25 pre-open prep',         fn: jobPreOpen,                      tradingDayOnly: true },
+  { expr: '35 9 * * 1-5', name: '09:35 lock 5-min OR',         fn: () => lockOpeningRange(5),       tradingDayOnly: true },
+  { expr: '45 9 * * 1-5', name: '09:45 lock 15-min OR',        fn: () => lockOpeningRange(15),      tradingDayOnly: true },
+  { expr: '0 10 * * 1-5', name: '10:00 lock 30-min OR',        fn: () => lockOpeningRange(30, ' — all timeframes active, breakout detection live'), tradingDayOnly: true },
+  { expr: '0 11 * * 1-5', name: '11:00 entry window close',    fn: jobEntryClose,                   tradingDayOnly: true },
+  // 6-field (with seconds): every 30s during the 9:xx and 10:xx ET hours
+  { expr: '*/30 * 9,10 * * 1-5', name: 'breakout monitor (30s)', fn: jobMonitorBreakouts,           tradingDayOnly: true, quiet: true },
+  { expr: '*/30 * * * *', name: 'heartbeat',                   fn: jobHeartbeat,                    tradingDayOnly: false },
 ];
 
 function register(job) {
@@ -133,15 +207,51 @@ function register(job) {
       if (!job.quiet) logger.info(`✓ ${job.name}`);
     } catch (err) {
       logger.error(`✗ ${job.name}: ${err.stack || err.message}`);
+      // Alert on failure — but not for the high-frequency quiet monitor, to
+      // avoid spamming Discord every 30s if something stays broken.
+      if (!job.quiet) {
+        try { await sendDiscord({ content: `🚨 ORB BOT — task "${job.name}" failed: ${err.message}` }); } catch { /* ignore */ }
+      }
     }
   }, { timezone: TZ });
 }
 
+// Manual triggers for verification: `node src/bot.js --run <key>`
+const RUNNERS = {
+  wake: jobWakeUp,
+  scan: () => jobScanPreview('manual scan'),
+  final: jobFinalScan,
+  preopen: jobPreOpen,
+  or5: () => lockOpeningRange(5),
+  or15: () => lockOpeningRange(15),
+  or30: () => lockOpeningRange(30, ' — all timeframes active, breakout detection live'),
+  monitor: jobMonitorBreakouts,
+  close: jobEntryClose,
+};
+
 async function main() {
   const check = process.argv.includes('--check');
+  const runIdx = process.argv.indexOf('--run');
   logger.info(`ORB bot starting — mode=${config.alpaca.paper ? 'PAPER' : 'LIVE'} | tz=${TZ} | node=${process.version}`);
 
-  // Fail fast if credentials/connection are bad (surfaces clearly in Railway logs).
+  if (runIdx !== -1) {
+    const key = process.argv[runIdx + 1];
+    const fn = RUNNERS[key];
+    if (!fn) {
+      logger.error(`Unknown --run job "${key}". Options: ${Object.keys(RUNNERS).join(', ')}`);
+      process.exit(1);
+    }
+    logger.info(`Manually running job: ${key}`);
+    try {
+      await fn();
+      logger.info(`✓ manual job "${key}" complete`);
+      process.exit(0);
+    } catch (err) {
+      logger.error(`✗ manual job "${key}" failed: ${err.stack || err.message}`);
+      process.exit(1);
+    }
+  }
+
   try {
     const acct = await getAccount();
     logger.info(`Alpaca connected: account ${acct.account_number}, buying power $${acct.buying_power}`);
@@ -150,9 +260,25 @@ async function main() {
     process.exit(1);
   }
 
+  if (!config.scheduleEnabled) {
+    logger.warn('SCHEDULE_ENABLED=false — cron jobs NOT registered. Worker idle.');
+    if (check) process.exit(0);
+    setInterval(() => {}, 1 << 30); // keep process alive
+    return;
+  }
+
+  // Validate every cron expression up front (incl. the 6-field seconds one),
+  // so --check catches a malformed schedule before deploy.
+  for (const j of JOBS) {
+    if (!cron.validate(j.expr)) {
+      logger.error(`FATAL: invalid cron expression for "${j.name}": ${j.expr}`);
+      process.exit(1);
+    }
+  }
+
   logger.info('Scheduled jobs (ET):');
-  for (const j of JOBS) logger.info(`  ${j.expr.padEnd(14)} ${j.name}`);
-  logger.warn('Execution is NOT implemented yet — bot will scan & capture ranges only, no orders.');
+  for (const j of JOBS) logger.info(`  ${j.expr.padEnd(16)} ${j.name}`);
+  logger.warn('Phases 1–2 only: scans, OR locks & breakout SIGNALS. No orders are placed (Phase 3 pending).');
 
   if (check) {
     logger.info('--check OK: startup + connection + schedule validated. Exiting.');
@@ -163,7 +289,6 @@ async function main() {
   logger.info('Scheduler armed. Worker idle until next job. (Ctrl-C / SIGTERM to stop.)');
 }
 
-// Graceful shutdown so Railway redeploys don't leave a half-dead process.
 for (const sig of ['SIGTERM', 'SIGINT']) {
   process.on(sig, () => {
     logger.info(`${sig} received — shutting down cleanly.`);

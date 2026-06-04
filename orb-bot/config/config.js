@@ -52,6 +52,10 @@ export const config = {
     webhookUrl: process.env.DISCORD_WEBHOOK_URL || '',
   },
 
+  // Master switch for the cron schedule. Set SCHEDULE_ENABLED=false to disable
+  // all scheduled jobs (useful for local testing). Defaults to enabled.
+  scheduleEnabled: (process.env.SCHEDULE_ENABLED ?? 'true') !== 'false',
+
   timezone: process.env.TIMEZONE || 'America/New_York',
 
   // ----- Universe filters (spec: Stock Selection Criteria) -----

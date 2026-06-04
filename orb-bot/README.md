@@ -125,8 +125,30 @@ node src/bot.js --check   # validate startup + connection + schedule, then exit
 ```
 
 The worker schedules everything in **America/New_York** (so jobs fire at the
-right ET market time regardless of host timezone): wake-up/account check 04:00,
-pre-market gap scan 09:00, opening-range capture 10:05, heartbeat every 30 min.
+right ET market time regardless of host timezone):
+
+| ET time | Job | Discord |
+|---------|-----|---------|
+| 05:00 | connection check (retry 60s ×10), holiday stand-down | on failure/holiday |
+| 07:00 | initial universe + gap scan, log ranked candidates | — |
+| 08:00 | refined scan, re-rank | — |
+| 09:00 | final scan → select top 5 → persist watchlist | 📋 watchlist |
+| 09:25 | pre-open prep, connection re-check | ⏰ all systems go |
+| 09:35 | lock 5-min opening range | 🔒 5-min OR |
+| 09:45 | lock 15-min opening range | 🔒 15-min OR |
+| 10:00 | lock 30-min opening range | 🔒 30-min OR |
+| 09:35–11:00 | breakout monitor, **every 30s** | 🚨 on signal |
+| 11:00 | close entry window | 🚫 closed |
+| every 30 min | heartbeat | — |
+
+Set `SCHEDULE_ENABLED=false` to disable all cron jobs (for testing). Trigger any
+job on demand for verification: `node src/bot.js --run <wake|scan|final|preopen|
+or5|or15|or30|monitor|close>`.
+
+> **Afternoon execution intentionally omitted.** The spec's 3:55 PM force-close,
+> 4:00/4:30 PM P&L + reports, and 5:00 PM reset are NOT scheduled — they require
+> the order-execution engine (Phase 3). Rather than fake trade results, those
+> jobs are left out until execution exists.
 
 > **What it does today:** builds & logs the daily watchlist and opening ranges.
 > **What it does NOT do yet:** breakout detection & order execution (Phases 3–4),
