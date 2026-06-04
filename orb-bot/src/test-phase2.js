@@ -1,7 +1,8 @@
 /**
  * Phase 2 test runner — strategy logic.
  * Runs the offline unit tests for the opening-range module (all 3 timeframes,
- * window boundaries, gaps, live tracker) and its database persistence.
+ * window boundaries, gaps, live tracker), the breakout detector (every
+ * confirmation + failure mode), the Discord notifier, and DB persistence.
  *
  *   node src/test-phase2.js          (unit tests only)
  *   node src/test-phase2.js --demo   (also compute ORs on a recent live session)
@@ -13,10 +14,12 @@ import { dirname, join } from 'node:path';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const files = [
   'tests/openingRange.test.js',
+  'tests/breakoutDetector.test.js',
+  'tests/discord.test.js',
   'tests/database.test.js',
 ];
 
-console.log('▶ Phase 2 unit tests (opening range + persistence)\n');
+console.log('▶ Phase 2 unit tests (opening range + breakout + notifier + persistence)\n');
 let status = spawnSync(process.execPath, ['--test', ...files], { cwd: root, stdio: 'inherit' }).status ?? 1;
 
 if (process.argv.includes('--demo')) {
