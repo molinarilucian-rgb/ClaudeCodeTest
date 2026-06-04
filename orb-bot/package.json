@@ -1,0 +1,25 @@
+{
+  "name": "orb-bot",
+  "version": "0.1.0",
+  "description": "Opening Range Breakout (ORB) automated paper trading bot for Alpaca",
+  "type": "module",
+  "main": "src/bot.js",
+  "scripts": {
+    "start": "node src/bot.js --mode=paper",
+    "scan": "node src/scanners/universeScanner.js",
+    "backtest": "node src/backtest.js",
+    "check": "node src/data/marketData.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@alpacahq/alpaca-trade-api": "^3.1.3",
+    "axios": "^1.7.7",
+    "dayjs": "^1.11.13",
+    "dotenv": "^16.4.5",
+    "node-cron": "^3.0.3",
+    "winston": "^3.14.2"
+  },
+  "//db": "SQLite via Node's built-in node:sqlite (Node 22.5+) — no native deps needed on Windows."
+}
