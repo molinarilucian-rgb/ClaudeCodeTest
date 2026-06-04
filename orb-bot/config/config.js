@@ -35,6 +35,11 @@ export const config = {
     baseUrl: 'https://api.perplexity.ai/chat/completions',
   },
 
+  discord: {
+    // Webhook URL from Discord: Channel → Edit → Integrations → Webhooks.
+    webhookUrl: process.env.DISCORD_WEBHOOK_URL || '',
+  },
+
   timezone: process.env.TIMEZONE || 'America/New_York',
 
   // ----- Universe filters (spec: Stock Selection Criteria) -----

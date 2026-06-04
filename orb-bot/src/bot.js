@@ -4,7 +4,9 @@ import logger from './utils/logger.js';
 import { nowEt, etDateStr, etToIso, isTradingDay } from './utils/timeUtils.js';
 import { getAccount, getMinuteBars } from './data/marketData.js';
 import { scanGaps } from './scanners/gapScanner.js';
-import { computeAllOpeningRanges } from './strategy/openingRange.js';
+import { computeAllOpeningRanges, minutesFromOpen } from './strategy/openingRange.js';
+import { detectBreakout, ENTRY_CUTOFF_OFFSET } from './strategy/breakoutDetector.js';
+import { sendBreakoutAlert } from './notify/discord.js';
 import { getWatchlist, saveOpeningRange } from './data/database.js';
 
 /**
@@ -25,6 +27,7 @@ const TZ = config.timezone;
 // ---- Jobs ----
 
 async function jobWakeUp() {
+  alertedSignals.clear(); // reset daily de-dup
   const acct = await getAccount();
   logger.info(`Awake. Account ${acct.account_number} | status=${acct.status} | buying_power=$${acct.buying_power} | cash=$${acct.cash}`);
 }
@@ -62,6 +65,48 @@ async function jobOpeningRangeCapture() {
   logger.info('Opening ranges captured. Breakout detection & execution: NOT yet implemented (Phases 3–4).');
 }
 
+// De-dup: at most one alert per symbol+timeframe+direction per day.
+// Cleared each morning by the wake-up job.
+const alertedSignals = new Set();
+
+async function jobMonitorBreakouts() {
+  const nowOff = minutesFromOpen(new Date().toISOString());
+  // Only during the entry window: after the first (5-min) OR closes, before cutoff.
+  if (nowOff < Math.min(...config.strategy.orTimeframes) || nowOff >= ENTRY_CUTOFF_OFFSET) return;
+
+  const date = etDateStr();
+  const watchlist = getWatchlist(date).filter((r) => r.selected);
+  if (!watchlist.length) return;
+
+  const startIso = etToIso(date, '09:30');
+  const nowIso = new Date().toISOString();
+
+  for (const row of watchlist) {
+    const bars = await getMinuteBars(row.symbol, startIso, nowIso);
+    if (!bars.length) continue;
+    const ranges = computeAllOpeningRanges(bars);
+
+    for (const tf of config.strategy.orTimeframes) {
+      const signal = detectBreakout({
+        symbol: row.symbol,
+        timeframe: tf,
+        orState: ranges[tf],
+        sessionBars: bars,
+        gapPct: row.gap_pct,
+      });
+      if (!signal || !signal.triggered) continue;
+
+      const key = `${date}|${row.symbol}|${tf}|${signal.direction}`;
+      if (alertedSignals.has(key)) continue;
+      alertedSignals.add(key);
+
+      logger.info(`🔔 BREAKOUT ${row.symbol} ${tf}m ${signal.direction.toUpperCase()} @ $${signal.entryPrice.toFixed(2)} (vol ${signal.volumeRatio.toFixed(1)}×)`);
+      const sent = await sendBreakoutAlert(signal, { catalyst: row.catalyst_type });
+      if (!sent) logger.warn(`Discord alert not delivered for ${row.symbol} ${tf}m`);
+    }
+  }
+}
+
 function jobHeartbeat() {
   logger.info(`heartbeat — ${nowEt().format('YYYY-MM-DD HH:mm')} ET | trading_day=${isTradingDay()}`);
 }
@@ -69,22 +114,23 @@ function jobHeartbeat() {
 // ---- Schedule (cron expressions evaluated in ET) ----
 // min hour day month weekday   (1-5 = Mon–Fri)
 const JOBS = [
-  { expr: '0 4 * * 1-5',  name: 'wake-up / account check', fn: jobWakeUp,              tradingDayOnly: true },
-  { expr: '0 9 * * 1-5',  name: 'pre-market gap scan',     fn: jobGapScan,             tradingDayOnly: true },
-  { expr: '5 10 * * 1-5', name: 'opening-range capture',   fn: jobOpeningRangeCapture, tradingDayOnly: true },
-  { expr: '*/30 * * * *', name: 'heartbeat',               fn: jobHeartbeat,           tradingDayOnly: false },
+  { expr: '0 4 * * 1-5',    name: 'wake-up / account check',  fn: jobWakeUp,              tradingDayOnly: true },
+  { expr: '0 9 * * 1-5',    name: 'pre-market gap scan',      fn: jobGapScan,             tradingDayOnly: true },
+  { expr: '5 10 * * 1-5',   name: 'opening-range capture',    fn: jobOpeningRangeCapture, tradingDayOnly: true },
+  { expr: '*/2 9,10 * * 1-5', name: 'breakout monitor',       fn: jobMonitorBreakouts,    tradingDayOnly: true, quiet: true },
+  { expr: '*/30 * * * *',   name: 'heartbeat',                fn: jobHeartbeat,           tradingDayOnly: false },
 ];
 
 function register(job) {
   cron.schedule(job.expr, async () => {
     if (job.tradingDayOnly && !isTradingDay()) {
-      logger.info(`Skip "${job.name}" — not a trading day (weekend/holiday)`);
+      if (!job.quiet) logger.info(`Skip "${job.name}" — not a trading day (weekend/holiday)`);
       return;
     }
-    logger.info(`▶ ${job.name}`);
+    if (!job.quiet) logger.info(`▶ ${job.name}`);
     try {
       await job.fn();
-      logger.info(`✓ ${job.name}`);
+      if (!job.quiet) logger.info(`✓ ${job.name}`);
     } catch (err) {
       logger.error(`✗ ${job.name}: ${err.stack || err.message}`);
     }

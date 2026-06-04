@@ -11,7 +11,7 @@ variations in parallel. See `orb_strategy_spec.md` for the full specification.
 | Phase | Scope | State |
 |-------|-------|-------|
 | **1. Foundation** | Project setup, Alpaca connection, universe scanner | ✅ built |
-| **2. Strategy logic** | Opening range ✅ · breakout detection ⬜ · VWAP ⬜ · gap validation ⬜ | 🔨 in progress |
+| **2. Strategy logic** | Opening range ✅ · breakout detection ✅ · VWAP ✅ · gap validation ✅ | ✅ built |
 | 3. Execution | Sizing, limit orders, stops/targets, EOD close | ⬜ |
 | 4. Multi-strategy | 9 variations in parallel, independent P&L | ⬜ |
 | 5. Backtesting | Historical replay + metrics | ⬜ |
@@ -40,7 +40,8 @@ npm run check    # verify Alpaca connection + account
 npm run scan     # run the universe scanner (liquidity/price/exchange filters)
 npm run gapscan  # full pre-market scan: gaps + Perplexity catalyst filter → DB
 npm run or       # compute opening ranges for a recent session (demo + persist)
-npm test         # 45 offline unit tests (indicators, time, catalyst, DB, OR)
+node src/notify/discord.js   # send a sample Discord alert (verify your webhook)
+npm test         # 62 offline unit tests (indicators, time, catalyst, DB, OR, breakout, discord)
 npm run smoke    # live end-to-end checks against real Alpaca + Perplexity APIs
 ```
 
@@ -70,6 +71,9 @@ orb-bot/
       gapScanner.js        # gaps → catalyst classify → quality filter → DB
     strategy/
       openingRange.js      # 5/15/30-min OR calc (batch + live tracker)  [Phase 2]
+      breakoutDetector.js  # ORB entry signal + all confirmations (VWAP/gap/vol)
+    notify/
+      discord.js           # Discord webhook alerts for breakout signals
     utils/
       logger.js            # winston (console + daily file)
       timeUtils.js         # dayjs ET timezone, trading-day/holiday helpers
@@ -127,6 +131,25 @@ pre-market gap scan 09:00, opening-range capture 10:05, heartbeat every 30 min.
 > **What it does today:** builds & logs the daily watchlist and opening ranges.
 > **What it does NOT do yet:** breakout detection & order execution (Phases 3–4),
 > so it places **no trades**. The logs say so explicitly on every startup.
+
+## Breakout signal notifications (Discord)
+
+During the entry window (after the 5-min OR closes, before 11:00 ET) the bot's
+**breakout monitor** runs every 2 minutes: it pulls each watchlist symbol's
+session bars, computes the opening ranges, and runs the breakout detector for
+all three timeframes. When a signal passes **all** confirmations it sends a
+Discord webhook alert with the symbol, direction, OR timeframe, entry/stop/
+targets, and a ✅/❌ checklist of every confirmation (price break, candle close,
+gap alignment, VWAP bias, volume surge, cutoff, position). Alerts are
+de-duplicated to one per symbol+timeframe+direction per day.
+
+Set up:
+1. Discord: **Channel → Edit Channel → Integrations → Webhooks → New Webhook → Copy URL**
+2. Add `DISCORD_WEBHOOK_URL` to `.env` (local) or the Railway dashboard (cloud).
+3. Verify it: `node src/notify/discord.js` sends a sample alert to the channel.
+
+> These are **signal notifications only** — the bot still places no orders
+> (execution is Phase 3). It tells you what it *would* trade.
 
 ## Deploying to Railway.app
 
