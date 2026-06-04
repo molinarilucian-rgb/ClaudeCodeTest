@@ -43,7 +43,20 @@ TIMEZONE=America/New_York
 npm run check    # verify Alpaca connection + account
 npm run scan     # run the universe scanner (liquidity/price/exchange filters)
 npm run gapscan  # full pre-market scan: gaps + Perplexity catalyst filter → DB
+npm test         # 32 offline unit tests (indicators, time, catalyst parsing, DB)
+npm run smoke    # live end-to-end checks against real Alpaca + Perplexity APIs
 ```
+
+## Testing
+
+- **`npm test`** — deterministic, offline. Covers indicator math (ATR/VWAP/SMA/
+  stdDev against hand-computed values), ET timezone & holiday logic, Perplexity
+  JSON parsing + response normalization (clamps confidence, maps invalid enums,
+  fails safe on HTTP errors / network failure / unparseable output), and the
+  SQLite layer (catalyst persistence, upsert, trade→watchlist catalyst copy).
+- **`npm run smoke`** — hits the real APIs: Alpaca account, asset lookup, a bogus
+  ticker (must reject without crashing), the universe scan, a live Perplexity
+  classification, and the full gap-scan pipeline.
 
 ## Project structure
 

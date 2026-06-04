@@ -2,5 +2,5 @@
 node_modules/
 logs/
 reports/
-data/*.db
-data/*.sqlite
+# Generated SQLite DB + WAL/SHM sidecars (anchored to project root, NOT src/data)
+/data/

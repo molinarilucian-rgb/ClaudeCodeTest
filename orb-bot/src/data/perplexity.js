@@ -50,7 +50,7 @@ What is the catalyst? Return the JSON object only.`;
 }
 
 /** Parse a JSON object out of a model response that may include stray text/fences. */
-function parseCatalystJson(content) {
+export function parseCatalystJson(content) {
   if (!content) return null;
   let text = content.trim().replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();
   // Grab the first {...} block if there's surrounding prose.
