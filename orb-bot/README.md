@@ -11,7 +11,7 @@ variations in parallel. See `orb_strategy_spec.md` for the full specification.
 | Phase | Scope | State |
 |-------|-------|-------|
 | **1. Foundation** | Project setup, Alpaca connection, universe scanner | ✅ built |
-| 2. Strategy logic | Opening range, breakout detection, VWAP, gap validation | ⬜ |
+| **2. Strategy logic** | Opening range ✅ · breakout detection ⬜ · VWAP ⬜ · gap validation ⬜ | 🔨 in progress |
 | 3. Execution | Sizing, limit orders, stops/targets, EOD close | ⬜ |
 | 4. Multi-strategy | 9 variations in parallel, independent P&L | ⬜ |
 | 5. Backtesting | Historical replay + metrics | ⬜ |
@@ -43,7 +43,8 @@ TIMEZONE=America/New_York
 npm run check    # verify Alpaca connection + account
 npm run scan     # run the universe scanner (liquidity/price/exchange filters)
 npm run gapscan  # full pre-market scan: gaps + Perplexity catalyst filter → DB
-npm test         # 32 offline unit tests (indicators, time, catalyst parsing, DB)
+npm run or       # compute opening ranges for a recent session (demo + persist)
+npm test         # 45 offline unit tests (indicators, time, catalyst, DB, OR)
 npm run smoke    # live end-to-end checks against real Alpaca + Perplexity APIs
 ```
 
@@ -71,6 +72,8 @@ orb-bot/
     scanners/
       universeScanner.js   # universe filters → qualified candidates  [Phase 1]
       gapScanner.js        # gaps → catalyst classify → quality filter → DB
+    strategy/
+      openingRange.js      # 5/15/30-min OR calc (batch + live tracker)  [Phase 2]
     utils/
       logger.js            # winston (console + daily file)
       timeUtils.js         # dayjs ET timezone, trading-day/holiday helpers

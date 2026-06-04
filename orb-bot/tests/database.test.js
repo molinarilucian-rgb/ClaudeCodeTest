@@ -64,6 +64,24 @@ test('getWatchlist returns rows ordered by rank_score desc', () => {
   assert.equal(rows[1].symbol, 'LO');
 });
 
+test('saveOpeningRange upserts and returns a row id', () => {
+  const id1 = dbmod.saveOpeningRange('2026-06-03', 'AAA', 5, 103.5, 97.2, '2026-06-03T13:35:00.000Z');
+  assert.ok(Number.isInteger(id1));
+  const row = dbmod.getOpeningRange('2026-06-03', 'AAA', 5);
+  assert.equal(row.or_high, 103.5);
+  assert.equal(row.or_low, 97.2);
+  assert.equal(row.or_complete_time, '2026-06-03T13:35:00.000Z');
+
+  // upsert: same (date,symbol,timeframe) updates in place, keeps the same id
+  const id2 = dbmod.saveOpeningRange('2026-06-03', 'AAA', 5, 104.0, 96.0, '2026-06-03T13:35:00.000Z');
+  assert.equal(id2, id1);
+  assert.equal(dbmod.getOpeningRange('2026-06-03', 'AAA', 5).or_high, 104.0);
+
+  // different timeframe → distinct row
+  const id3 = dbmod.saveOpeningRange('2026-06-03', 'AAA', 15, 110, 90, null);
+  assert.notEqual(id3, id1);
+});
+
 test('saveTrade copies catalyst from the day\'s watchlist pick', () => {
   dbmod.saveWatchlistEntry('2026-06-04', {
     symbol: 'CCC', gapPct: 4, preMarketVolume: 999, rankScore: 5, selected: true,

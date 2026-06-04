@@ -8,6 +8,7 @@
     "start": "node src/bot.js --mode=paper",
     "scan": "node src/scanners/universeScanner.js",
     "gapscan": "node src/scanners/gapScanner.js",
+    "or": "node src/strategy/openingRange.js",
     "backtest": "node src/backtest.js",
     "check": "node src/data/marketData.js",
     "test": "node --test tests/*.test.js",

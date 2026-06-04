@@ -129,6 +129,27 @@ export function getWatchlist(date) {
   return db.prepare('SELECT * FROM watchlist_history WHERE date=? ORDER BY rank_score DESC').all(date);
 }
 
+/** Upsert an opening range; returns the row id (for trade foreign keys). */
+export function saveOpeningRange(date, symbol, timeframe, orHigh, orLow, orCompleteTime) {
+  db.prepare(`
+    INSERT INTO opening_ranges (date, symbol, timeframe, or_high, or_low, or_complete_time)
+    VALUES (?,?,?,?,?,?)
+    ON CONFLICT(date, symbol, timeframe) DO UPDATE SET
+      or_high=excluded.or_high, or_low=excluded.or_low,
+      or_complete_time=excluded.or_complete_time
+  `).run(date, symbol, timeframe, orHigh ?? null, orLow ?? null, orCompleteTime ?? null);
+  return db.prepare(
+    'SELECT id FROM opening_ranges WHERE date=? AND symbol=? AND timeframe=?'
+  ).get(date, symbol, timeframe).id;
+}
+
+/** Fetch a stored opening range. */
+export function getOpeningRange(date, symbol, timeframe) {
+  return db.prepare(
+    'SELECT * FROM opening_ranges WHERE date=? AND symbol=? AND timeframe=?'
+  ).get(date, symbol, timeframe);
+}
+
 /** Insert a completed trade record, copying catalyst from its watchlist pick. */
 export function saveTrade(trade) {
   const wl = getWatchlistEntry(trade.date, trade.symbol) || {};
@@ -151,4 +172,7 @@ export function saveTrade(trade) {
   );
 }
 
-export default { db, saveWatchlistEntry, getWatchlistEntry, getWatchlist, saveTrade };
+export default {
+  db, saveWatchlistEntry, getWatchlistEntry, getWatchlist,
+  saveOpeningRange, getOpeningRange, saveTrade,
+};
