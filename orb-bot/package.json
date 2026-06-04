@@ -12,6 +12,8 @@
     "backtest": "node src/backtest.js",
     "check": "node src/data/marketData.js",
     "test": "node --test tests/*.test.js",
+    "test:phase1": "node src/test-phase1.js",
+    "test:phase2": "node src/test-phase2.js",
     "smoke": "node tests/live-smoke.js"
   },
   "engines": {
