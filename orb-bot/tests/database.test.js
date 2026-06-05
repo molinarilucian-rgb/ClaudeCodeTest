@@ -82,6 +82,31 @@ test('saveOpeningRange upserts and returns a row id', () => {
   assert.notEqual(id3, id1);
 });
 
+test('saveSignal persists quality score + breakdown and de-dups', () => {
+  const signal = {
+    symbol: 'NVDA', timeframe: 15, direction: 'long', time: '2026-06-04T13:50:00Z',
+    entryPrice: 223.1, stopPrice: 217.8, gapPct: 3.52, vwap: 220.4, volumeRatio: 4.0,
+    qualityScore: 8.4, qualityGrade: 'A',
+    scoreBreakdown: { volume: 10, gap: 7, close: 6.4, vwap: 10 },
+  };
+  dbmod.saveSignal('2026-06-04', signal, { catalyst: 'analyst_rating' });
+  const row = dbmod.getSignal('2026-06-04', 'NVDA', 15, 'long');
+  assert.equal(row.quality_score, 8.4);
+  assert.equal(row.quality_grade, 'A');
+  assert.equal(row.score_volume, 10);
+  assert.equal(row.score_close, 6.4);
+  assert.equal(row.volume_ratio, 4.0);
+  assert.equal(row.catalyst_type, 'analyst_rating');
+
+  // second save of the same (date,symbol,tf,direction) is ignored (no dup, no throw)
+  dbmod.saveSignal('2026-06-04', { ...signal, qualityScore: 1.0 }, {});
+  const after = dbmod.db.prepare(
+    "SELECT COUNT(*) n FROM signals WHERE date='2026-06-04' AND symbol='NVDA' AND timeframe=15 AND direction='long'"
+  ).get();
+  assert.equal(after.n, 1);
+  assert.equal(dbmod.getSignal('2026-06-04', 'NVDA', 15, 'long').quality_score, 8.4); // unchanged
+});
+
 test('saveTrade copies catalyst from the day\'s watchlist pick', () => {
   dbmod.saveWatchlistEntry('2026-06-04', {
     symbol: 'CCC', gapPct: 4, preMarketVolume: 999, rankScore: 5, selected: true,

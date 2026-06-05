@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { computeOpeningRange } from '../src/strategy/openingRange.js';
-import { detectBreakout } from '../src/strategy/breakoutDetector.js';
+import { detectBreakout, scoreSignal } from '../src/strategy/breakoutDetector.js';
 
 // Minute bar `offset` minutes after the 09:30 ET open on 2026-06-03 (EDT).
 function bar(offset, h, l, c, v = 1000) {
@@ -139,4 +139,40 @@ test('hasPosition suppresses the signal via noPosition check', () => {
   });
   assert.equal(sig.confirmations.noPosition, false);
   assert.equal(sig.triggered, false);
+});
+
+// ---- Signal quality score ----
+
+test('every signal carries a quality score, grade, and breakdown', () => {
+  const sig = detectLong(longBars());
+  assert.equal(typeof sig.qualityScore, 'number');
+  assert.ok(sig.qualityScore >= 1 && sig.qualityScore <= 10);
+  assert.ok(['A+', 'A', 'B', 'C', 'D'].includes(sig.qualityGrade));
+  for (const k of ['volume', 'gap', 'close', 'vwap']) {
+    assert.ok(sig.scoreBreakdown[k] >= 0 && sig.scoreBreakdown[k] <= 10, `${k} in 0..10`);
+  }
+});
+
+test('scoreSignal stays within 1..10 even at extremes', () => {
+  const hi = scoreSignal({ direction: 'long', volumeRatio: 99, gapPct: 50, entryPrice: 200, orHigh: 100, orLow: 90, vwap: 50 });
+  assert.ok(hi.score <= 10);
+  const lo = scoreSignal({ direction: 'long', volumeRatio: 0, gapPct: 0, entryPrice: 100.0001, orHigh: 100, orLow: 99, vwap: 100 });
+  assert.ok(lo.score >= 1);
+});
+
+test('quality score is monotonic in volume ratio (more volume → higher)', () => {
+  const base = { direction: 'long', gapPct: 2, entryPrice: 101.5, orHigh: 100, orLow: 99, vwap: 100 };
+  const weak = scoreSignal({ ...base, volumeRatio: 1.5 });
+  const strong = scoreSignal({ ...base, volumeRatio: 4 });
+  assert.ok(strong.breakdown.volume > weak.breakdown.volume);
+  assert.ok(strong.score > weak.score);
+});
+
+test('A+ setup scores higher than a mediocre one', () => {
+  // Strong: huge volume, big gap, closes well beyond OR, far above VWAP
+  const aplus = scoreSignal({ direction: 'long', volumeRatio: 4, gapPct: 5, entryPrice: 102, orHigh: 100, orLow: 99, vwap: 99.5 });
+  // Mediocre: just-barely volume, tiny gap, scrapes over OR, barely above VWAP
+  const meh = scoreSignal({ direction: 'long', volumeRatio: 1.5, gapPct: 1, entryPrice: 100.05, orHigh: 100, orLow: 99, vwap: 100.0 });
+  assert.ok(aplus.score > meh.score);
+  assert.ok(aplus.score >= 8, `expected A-grade, got ${aplus.score}`);
 });

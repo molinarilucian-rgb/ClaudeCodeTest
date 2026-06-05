@@ -7,7 +7,7 @@ import { scanGaps } from './scanners/gapScanner.js';
 import { computeOpeningRange, computeAllOpeningRanges, minutesFromOpen } from './strategy/openingRange.js';
 import { detectBreakout, ENTRY_CUTOFF_OFFSET } from './strategy/breakoutDetector.js';
 import { sendDiscord, sendBreakoutAlert } from './notify/discord.js';
-import { getWatchlist, saveOpeningRange } from './data/database.js';
+import { getWatchlist, saveOpeningRange, saveSignal } from './data/database.js';
 
 /**
  * ORB Bot — main entry / scheduler (Phase 6, morning timeline).
@@ -161,7 +161,8 @@ async function jobMonitorBreakouts() {
       if (alertedSignals.has(key)) continue;
       alertedSignals.add(key);
 
-      logger.info(`🔔 BREAKOUT ${row.symbol} ${tf}m ${signal.direction.toUpperCase()} @ $${signal.entryPrice.toFixed(2)} (vol ${signal.volumeRatio.toFixed(1)}×)`);
+      saveSignal(date, signal, { catalyst: row.catalyst_type });
+      logger.info(`🔔 BREAKOUT ${row.symbol} ${tf}m ${signal.direction.toUpperCase()} @ $${signal.entryPrice.toFixed(2)} | quality ${signal.qualityScore}/10 (${signal.qualityGrade}) | vol ${signal.volumeRatio.toFixed(1)}×`);
       const sent = await sendBreakoutAlert(signal, { catalyst: row.catalyst_type });
       if (!sent) logger.warn(`Discord alert not delivered for ${row.symbol} ${tf}m`);
     }

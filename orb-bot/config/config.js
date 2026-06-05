@@ -129,6 +129,16 @@ export const config = {
     orderFillTimeoutSec: 120, // cancel unfilled limit after 2 min
     killSwitchRiskMult: 1.5, // close if moves >1.5x planned risk against
     atrPeriod: 14,
+
+    // Signal quality score (1–10): weighted blend of four factors, each
+    // normalized to 0–10 at its "full marks" threshold below. Tunable.
+    scoring: {
+      weights: { volume: 0.30, gap: 0.25, close: 0.25, vwap: 0.20 },
+      volumeRatioMax: 4.0,      // breakout vol / avg5 at/above which volume = 10
+      gapPctMax: 5.0,           // |gap%| at/above which gap = 10
+      closeBeyondFracMax: 0.5,  // (close beyond OR) / OR range at which close = 10
+      vwapDistPctMax: 1.0,      // % distance from VWAP at which vwap = 10
+    },
   },
 
   // ----- Safety / risk controls -----

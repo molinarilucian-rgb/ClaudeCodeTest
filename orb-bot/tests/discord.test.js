@@ -19,6 +19,8 @@ const sampleSignal = {
   symbol: 'NVDA', timeframe: 15, direction: 'long', triggered: true,
   entryPrice: 223.1, orHigh: 222.78, orLow: 218.03, stopPrice: 217.8, risk: 5.3,
   gapPct: 3.52, vwap: 220.4, breakoutVolume: 84000, avgVol5: 21000, volumeRatio: 4.0,
+  qualityScore: 8.4, qualityGrade: 'A',
+  scoreBreakdown: { volume: 10, gap: 7, close: 6.4, vwap: 10 },
   targets: [{ rr: 1, price: 228.4 }, { rr: 1.5, price: 231 }, { rr: 2, price: 233.7 }],
   confirmations: {
     orEstablished: true, priceBreak: true, candleClose: true, gapAligned: true,
@@ -78,10 +80,15 @@ test('sendBreakoutAlert builds an embed with symbol, direction, and checklist', 
   assert.match(embed.title, /15m/);
   assert.equal(embed.color, 0x2ecc71); // green for long
 
+  assert.match(embed.title, /8\.4\/10 A/); // quality score in title
+
   const fieldNames = embed.fields.map((f) => f.name);
+  assert.ok(fieldNames.includes('Quality'));
+  assert.ok(fieldNames.includes('Score breakdown'));
   assert.ok(fieldNames.includes('Entry'));
   assert.ok(fieldNames.includes('Confirmations'));
   assert.ok(fieldNames.includes('Catalyst'));
+  assert.equal(embed.fields.find((f) => f.name === 'Quality').value, '8.4/10 (A)');
   const checklist = embed.fields.find((f) => f.name === 'Confirmations').value;
   assert.match(checklist, /✅/); // all confirmations passed
 });

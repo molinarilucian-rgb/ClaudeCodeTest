@@ -76,6 +76,30 @@ CREATE TABLE IF NOT EXISTS trades (
   opening_range_id INTEGER REFERENCES opening_ranges(id)
 );
 
+CREATE TABLE IF NOT EXISTS signals (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  date            TEXT NOT NULL,
+  symbol          TEXT NOT NULL,
+  timeframe       INTEGER NOT NULL,
+  direction       TEXT NOT NULL,
+  fired_at        TEXT,
+  entry_price     REAL,
+  stop_price      REAL,
+  gap_pct         REAL,
+  vwap            REAL,
+  volume_ratio    REAL,
+  -- signal quality score (1-10) + per-factor breakdown
+  quality_score   REAL,
+  quality_grade   TEXT,
+  score_volume    REAL,
+  score_gap       REAL,
+  score_close     REAL,
+  score_vwap      REAL,
+  catalyst_type   TEXT,
+  created_at      TEXT DEFAULT (datetime('now')),
+  UNIQUE(date, symbol, timeframe, direction)
+);
+
 CREATE TABLE IF NOT EXISTS daily_performance (
   id              INTEGER PRIMARY KEY AUTOINCREMENT,
   date            TEXT NOT NULL,
@@ -91,6 +115,7 @@ CREATE TABLE IF NOT EXISTS daily_performance (
 
 CREATE INDEX IF NOT EXISTS idx_trades_catalyst ON trades(catalyst_type, catalyst_quality);
 CREATE INDEX IF NOT EXISTS idx_watchlist_date ON watchlist_history(date);
+CREATE INDEX IF NOT EXISTS idx_signals_score ON signals(quality_score);
 `);
 
 logger.info(`Database ready at ${DB_PATH}`);
@@ -150,6 +175,37 @@ export function getOpeningRange(date, symbol, timeframe) {
   ).get(date, symbol, timeframe);
 }
 
+/**
+ * Persist a fired breakout signal (with its quality score breakdown).
+ * Idempotent per (date, symbol, timeframe, direction) so the 30s monitor
+ * re-firing the same setup won't create duplicates.
+ */
+export function saveSignal(date, signal, extra = {}) {
+  const b = signal.scoreBreakdown || {};
+  db.prepare(`
+    INSERT INTO signals
+      (date, symbol, timeframe, direction, fired_at, entry_price, stop_price,
+       gap_pct, vwap, volume_ratio, quality_score, quality_grade,
+       score_volume, score_gap, score_close, score_vwap, catalyst_type)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    ON CONFLICT(date, symbol, timeframe, direction) DO NOTHING
+  `).run(
+    date, signal.symbol, signal.timeframe, signal.direction,
+    signal.time ?? new Date().toISOString(), signal.entryPrice ?? null, signal.stopPrice ?? null,
+    signal.gapPct ?? null, signal.vwap ?? null, signal.volumeRatio ?? null,
+    signal.qualityScore ?? null, signal.qualityGrade ?? null,
+    b.volume ?? null, b.gap ?? null, b.close ?? null, b.vwap ?? null,
+    extra.catalyst ?? null
+  );
+}
+
+/** Fetch a stored signal. */
+export function getSignal(date, symbol, timeframe, direction) {
+  return db.prepare(
+    'SELECT * FROM signals WHERE date=? AND symbol=? AND timeframe=? AND direction=?'
+  ).get(date, symbol, timeframe, direction);
+}
+
 /** Insert a completed trade record, copying catalyst from its watchlist pick. */
 export function saveTrade(trade) {
   const wl = getWatchlistEntry(trade.date, trade.symbol) || {};
@@ -174,5 +230,5 @@ export function saveTrade(trade) {
 
 export default {
   db, saveWatchlistEntry, getWatchlistEntry, getWatchlist,
-  saveOpeningRange, getOpeningRange, saveTrade,
+  saveOpeningRange, getOpeningRange, saveSignal, getSignal, saveTrade,
 };

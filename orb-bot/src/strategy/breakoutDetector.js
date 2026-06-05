@@ -32,6 +32,51 @@ function hhmmToOffset(hhmm) {
 /** Entry cutoff as minutes-from-open (11:00 ET → 90). */
 export const ENTRY_CUTOFF_OFFSET = hhmmToOffset(strategy.entryCutoffEt);
 
+const clamp10 = (x) => Math.max(0, Math.min(10, x));
+const gradeFor = (x) => (x >= 9 ? 'A+' : x >= 8 ? 'A' : x >= 6.5 ? 'B' : x >= 5 ? 'C' : 'D');
+
+/**
+ * Signal quality score (1–10) — blends four strength factors so A+ setups can
+ * be separated from mediocre ones. Each factor is normalized to 0–10 at its
+ * configured "full marks" threshold, then weighted (see config.strategy.scoring).
+ *   - volume: breakout-candle volume ratio vs the prior 5 candles (higher = better)
+ *   - gap:    absolute pre-market gap size (larger = stronger)
+ *   - close:  how far price closed beyond the OR level, as a fraction of OR range
+ *   - vwap:   distance from VWAP on the correct side, as a % (further = stronger)
+ * @returns {{score:number, grade:string, breakdown:{volume,gap,close,vwap}}}
+ */
+export function scoreSignal({ direction, volumeRatio, gapPct, entryPrice, orHigh, orLow, vwap }) {
+  const s = strategy.scoring;
+  const isLong = direction === 'long';
+
+  const volume = clamp10((volumeRatio / s.volumeRatioMax) * 10);
+  const gap = clamp10((Math.abs(gapPct ?? 0) / s.gapPctMax) * 10);
+
+  const orRange = Math.max(orHigh - orLow, 1e-6);
+  const beyond = isLong ? entryPrice - orHigh : orLow - entryPrice;
+  const close = clamp10(((Math.max(beyond, 0) / orRange) / s.closeBeyondFracMax) * 10);
+
+  let vwapScore = 0;
+  if (vwap != null && vwap > 0) {
+    const distPct = ((isLong ? entryPrice - vwap : vwap - entryPrice) / vwap) * 100;
+    vwapScore = clamp10((Math.max(distPct, 0) / s.vwapDistPctMax) * 10);
+  }
+
+  const w = s.weights;
+  const raw = volume * w.volume + gap * w.gap + close * w.close + vwapScore * w.vwap;
+  const total = Math.max(1, Math.min(10, raw)); // a triggered signal floors at 1
+  return {
+    score: Number(total.toFixed(1)),
+    grade: gradeFor(total),
+    breakdown: {
+      volume: Number(volume.toFixed(1)),
+      gap: Number(gap.toFixed(1)),
+      close: Number(close.toFixed(1)),
+      vwap: Number(vwapScore.toFixed(1)),
+    },
+  };
+}
+
 /**
  * @param {object} p
  * @param {string} p.symbol
@@ -92,6 +137,11 @@ export function detectBreakout({ symbol, timeframe, orState, sessionBars, gapPct
     price: isLong ? entryPrice + risk * rr : entryPrice - risk * rr,
   }));
 
+  const quality = scoreSignal({
+    direction, volumeRatio, gapPct, entryPrice,
+    orHigh: orState.orHigh, orLow: orState.orLow, vwap: sessionVwap,
+  });
+
   return {
     symbol,
     timeframe,
@@ -110,8 +160,11 @@ export function detectBreakout({ symbol, timeframe, orState, sessionBars, gapPct
     breakoutVolume: candle.v,
     avgVol5,
     volumeRatio,
+    qualityScore: quality.score,
+    qualityGrade: quality.grade,
+    scoreBreakdown: quality.breakdown,
     confirmations,
   };
 }
 
-export default { detectBreakout, ENTRY_CUTOFF_OFFSET };
+export default { detectBreakout, scoreSignal, ENTRY_CUTOFF_OFFSET };

@@ -69,23 +69,33 @@ export async function sendBreakoutAlert(signal, extra = {}) {
     `${check(c.noPosition)} No open position`,
   ].join('\n');
 
-  const fields = [
+  const fields = [];
+  if (signal.qualityScore != null) {
+    fields.push({ name: 'Quality', value: `${signal.qualityScore}/10 (${signal.qualityGrade})`, inline: true });
+  }
+  fields.push(
     { name: 'Entry', value: money(signal.entryPrice), inline: true },
     { name: 'Stop', value: money(signal.stopPrice), inline: true },
     { name: 'Risk/share', value: money(signal.risk), inline: true },
     { name: 'OR High', value: money(signal.orHigh), inline: true },
     { name: 'OR Low', value: money(signal.orLow), inline: true },
     { name: 'Vol ratio', value: `${signal.volumeRatio.toFixed(1)}×`, inline: true },
+  );
+  if (signal.scoreBreakdown) {
+    const b = signal.scoreBreakdown;
+    fields.push({ name: 'Score breakdown', value: `Vol ${b.volume} · Gap ${b.gap} · Close ${b.close} · VWAP ${b.vwap}  (each /10)`, inline: false });
+  }
+  fields.push(
     { name: 'Targets', value: targetsStr, inline: false },
     { name: 'Confirmations', value: checklist, inline: false },
-  ];
+  );
   if (extra.catalyst) {
     fields.push({ name: 'Catalyst', value: String(extra.catalyst), inline: false });
   }
 
   return sendDiscord({
     embeds: [{
-      title: `${dir} breakout — ${signal.symbol} (${signal.timeframe}m ORB)`,
+      title: `${dir} breakout — ${signal.symbol} (${signal.timeframe}m ORB)${signal.qualityScore != null ? ` · ${signal.qualityScore}/10 ${signal.qualityGrade}` : ''}`,
       description: signal.triggered
         ? '**All confirmations passed** — valid ORB signal.'
         : '⚠️ Partial setup (not all confirmations passed).',
@@ -104,6 +114,8 @@ if (process.argv[1]?.endsWith('discord.js')) {
     entryPrice: 223.10, orHigh: 222.78, orLow: 218.03, stopPrice: 217.81,
     risk: 5.29, gapPct: 3.52, vwap: 220.4, breakoutVolume: 84000, avgVol5: 21000,
     volumeRatio: 4.0,
+    qualityScore: 8.4, qualityGrade: 'A',
+    scoreBreakdown: { volume: 10, gap: 7, close: 6.4, vwap: 10 },
     targets: [{ rr: 1, price: 228.39 }, { rr: 1.5, price: 231.04 }, { rr: 2, price: 233.68 }],
     confirmations: {
       orEstablished: true, priceBreak: true, candleClose: true, gapAligned: true,

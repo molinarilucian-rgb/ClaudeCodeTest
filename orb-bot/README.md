@@ -161,9 +161,16 @@ During the entry window (after the 5-min OR closes, before 11:00 ET) the bot's
 session bars, computes the opening ranges, and runs the breakout detector for
 all three timeframes. When a signal passes **all** confirmations it sends a
 Discord webhook alert with the symbol, direction, OR timeframe, entry/stop/
-targets, and a ✅/❌ checklist of every confirmation (price break, candle close,
-gap alignment, VWAP bias, volume surge, cutoff, position). Alerts are
-de-duplicated to one per symbol+timeframe+direction per day.
+targets, a **quality score (1–10)**, and a ✅/❌ checklist of every confirmation
+(price break, candle close, gap alignment, VWAP bias, volume surge, cutoff,
+position). Alerts are de-duplicated to one per symbol+timeframe+direction per day.
+
+**Signal quality score (1–10):** every signal is graded (A+/A/B/C/D) by a
+weighted blend of four strength factors — volume ratio, gap size, how far price
+closed beyond the OR level (as a fraction of the OR range), and distance from
+VWAP. Weights/thresholds are tunable in `config.strategy.scoring`. The score and
+its per-factor breakdown are shown in Discord and stored on every row of the
+`signals` table, so you can later filter A+ setups from mediocre ones.
 
 Set up:
 1. Discord: **Channel → Edit Channel → Integrations → Webhooks → New Webhook → Copy URL**
