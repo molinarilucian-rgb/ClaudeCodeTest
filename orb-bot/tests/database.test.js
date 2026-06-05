@@ -25,14 +25,18 @@ const sampleCatalyst = {
   confidence: 0.9,
 };
 
-test('saveWatchlistEntry persists catalyst fields', () => {
+test('saveWatchlistEntry persists catalyst + price/timestamp fields', () => {
   dbmod.saveWatchlistEntry('2026-06-03', {
-    symbol: 'AAA', gapPct: 3.1, preMarketVolume: 12345, rankScore: 7.5,
-    selected: true, catalyst: sampleCatalyst,
+    symbol: 'AAA', gapPct: 3.1, preMarketVolume: 12345,
+    prevClose: 100.25, preMarketPrice: 103.36, fetchedAt: '2026-06-03T11:00:00.000Z',
+    rankScore: 7.5, selected: true, catalyst: sampleCatalyst,
   });
   const row = dbmod.getWatchlistEntry('2026-06-03', 'AAA');
   assert.equal(row.symbol, 'AAA');
   assert.equal(row.gap_pct, 3.1);
+  assert.equal(row.prev_close, 100.25);
+  assert.equal(row.pre_market_price, 103.36);
+  assert.equal(row.fetched_at, '2026-06-03T11:00:00.000Z');
   assert.equal(row.catalyst_type, 'earnings');
   assert.equal(row.catalyst_quality, 'high');
   assert.equal(row.catalyst_tradeable, 1); // boolean → int

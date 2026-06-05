@@ -65,6 +65,9 @@ export async function scanGaps(universe) {
   const symbols = qualified.map((c) => c.symbol);
 
   const snapshots = await getSnapshots(symbols);
+  // Wall-clock moment the snapshot (prev close + pre-market price) was pulled —
+  // one fetch per scan, since Alpaca returns both values in a single snapshot.
+  const fetchedAt = new Date().toISOString();
 
   // Step 1: gap + volume filter.
   const gappers = [];
@@ -115,6 +118,9 @@ export async function scanGaps(universe) {
       symbol: c.symbol,
       gapPct: c.gapPct,
       preMarketVolume: c.pmVolume,
+      prevClose: c.prevClose,
+      preMarketPrice: c.price,
+      fetchedAt,
       rankScore: c.rankScore,
       selected: selectedSet.has(c.symbol),
       catalyst: c.catalyst,

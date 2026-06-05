@@ -59,14 +59,16 @@ if (rows.length === 0) {
 
 // Print the columns that exist (the schema has no prev_close / pre_market_price /
 // per-value fetch timestamps — only one created_at per row).
+const px = (v) => (v == null ? null : Number(v).toFixed(2));
 console.table(rows.map((r) => ({
   symbol: r.symbol,
-  gap_pct: r.gap_pct,
+  prev_close: px(r.prev_close),
+  pre_market_price: px(r.pre_market_price),
+  gap_pct: r.gap_pct != null ? Number(r.gap_pct).toFixed(2) : null,
   pm_volume: r.pm_volume,
-  rank_score: r.rank_score != null ? Math.round(r.rank_score) : null,
+  fetched_at: r.fetched_at, // when the snapshot was pulled (UTC)
   selected: r.selected ? '★' : '',
   catalyst: r.catalyst_type,
-  quality: r.catalyst_quality,
   created_at: r.created_at, // when the row was written (UTC)
 })));
 

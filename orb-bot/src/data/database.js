@@ -26,6 +26,9 @@ CREATE TABLE IF NOT EXISTS watchlist_history (
   symbol          TEXT NOT NULL,
   gap_pct         REAL,
   pm_volume       INTEGER,
+  prev_close      REAL,
+  pre_market_price REAL,
+  fetched_at      TEXT,
   rank_score      REAL,
   selected        INTEGER DEFAULT 0,
   -- catalyst classification (Perplexity)
@@ -118,18 +121,34 @@ CREATE INDEX IF NOT EXISTS idx_watchlist_date ON watchlist_history(date);
 CREATE INDEX IF NOT EXISTS idx_signals_score ON signals(quality_score);
 `);
 
+// Lightweight migration: add columns that older databases may be missing
+// (CREATE TABLE IF NOT EXISTS won't alter an existing table).
+function ensureColumns(table, columns) {
+  const existing = new Set(db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name));
+  for (const [name, type] of columns) {
+    if (!existing.has(name)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${type}`);
+  }
+}
+ensureColumns('watchlist_history', [
+  ['prev_close', 'REAL'],
+  ['pre_market_price', 'REAL'],
+  ['fetched_at', 'TEXT'],
+]);
+
 logger.info(`Database ready at ${DB_PATH}`);
 
 /** Upsert a watchlist entry (with catalyst) for a given date. */
 export function saveWatchlistEntry(date, entry) {
   const stmt = db.prepare(`
     INSERT INTO watchlist_history
-      (date, symbol, gap_pct, pm_volume, rank_score, selected,
-       catalyst_type, catalyst_summary, catalyst_quality,
+      (date, symbol, gap_pct, pm_volume, prev_close, pre_market_price, fetched_at,
+       rank_score, selected, catalyst_type, catalyst_summary, catalyst_quality,
        catalyst_sentiment, catalyst_tradeable, catalyst_confidence)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     ON CONFLICT(date, symbol) DO UPDATE SET
       gap_pct=excluded.gap_pct, pm_volume=excluded.pm_volume,
+      prev_close=excluded.prev_close, pre_market_price=excluded.pre_market_price,
+      fetched_at=excluded.fetched_at,
       rank_score=excluded.rank_score, selected=excluded.selected,
       catalyst_type=excluded.catalyst_type, catalyst_summary=excluded.catalyst_summary,
       catalyst_quality=excluded.catalyst_quality, catalyst_sentiment=excluded.catalyst_sentiment,
@@ -138,6 +157,7 @@ export function saveWatchlistEntry(date, entry) {
   const c = entry.catalyst || {};
   stmt.run(
     date, entry.symbol, entry.gapPct ?? null, entry.preMarketVolume ?? null,
+    entry.prevClose ?? null, entry.preMarketPrice ?? null, entry.fetchedAt ?? null,
     entry.rankScore ?? null, entry.selected ? 1 : 0,
     c.catalyst_type ?? null, c.catalyst_summary ?? null, c.quality ?? null,
     c.sentiment ?? null, c.tradeable ? 1 : 0, c.confidence ?? null
