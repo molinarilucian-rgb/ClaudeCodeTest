@@ -7,7 +7,8 @@ import { scanGaps } from './scanners/gapScanner.js';
 import { computeOpeningRange, computeAllOpeningRanges, minutesFromOpen } from './strategy/openingRange.js';
 import { detectBreakout, ENTRY_CUTOFF_OFFSET } from './strategy/breakoutDetector.js';
 import { sendDiscord, sendBreakoutAlert } from './notify/discord.js';
-import { getWatchlist, saveOpeningRange, saveSignal } from './data/database.js';
+import { getWatchlist, saveOpeningRange, saveSignal, getSignal } from './data/database.js';
+import { decideStartupAction } from './startupPolicy.js';
 
 /**
  * ORB Bot — main entry / scheduler (Phase 6, morning timeline).
@@ -25,7 +26,12 @@ import { getWatchlist, saveOpeningRange, saveSignal } from './data/database.js';
 const TZ = config.timezone;
 
 // De-dup: at most one breakout alert per symbol+timeframe+direction per day.
+// Backed by the `signals` table too, so a mid-session restart can't re-fire.
 const alertedSignals = new Set();
+
+// Runtime state. `standDownToday` is set when the bot boots after the OR window
+// (missed start) so it won't trade a partial session; reset at the 05:00 wake.
+const state = { standDownToday: false };
 
 // ---- Discord helper ----
 async function notify(content) {
@@ -53,6 +59,7 @@ async function verifyConnection({ maxMs = 10 * 60 * 1000, intervalMs = 60 * 1000
 // 05:00 — wake up, verify connection (with retry), holiday stand-down.
 async function jobWakeUp() {
   alertedSignals.clear(); // reset daily de-dup
+  state.standDownToday = false; // new day — clear any prior late-boot stand-down
   if (isHoliday()) {
     logger.info('Market holiday today — standing down.');
     await notify('📅 Market closed today. Bot standing down.');
@@ -109,8 +116,12 @@ async function jobPreOpen() {
 
 // 09:35 / 09:45 / 10:00 — lock the OR for one timeframe and Discord it.
 async function lockOpeningRange(tf, headerSuffix = '') {
+  if (state.standDownToday) {
+    logger.info(`OR ${tf}m lock skipped — standing down today (booted after the OR window).`);
+    return;
+  }
   const date = etDateStr();
-  const wl = getWatchlist(date).filter((r) => r.selected);
+  const wl = getWatchlist(date).filter((r) => r.selected); // always from DB, never memory
   if (!wl.length) {
     logger.warn(`OR ${tf}m lock: no watchlist — skipping.`);
     return;
@@ -135,11 +146,12 @@ async function lockOpeningRange(tf, headerSuffix = '') {
 
 // Every 30s in the entry window — detect breakouts, fire Discord alerts.
 async function jobMonitorBreakouts() {
+  if (state.standDownToday) return; // booted too late — no partial session
   const nowOff = minutesFromOpen(new Date().toISOString());
   if (nowOff < Math.min(...config.strategy.orTimeframes) || nowOff >= ENTRY_CUTOFF_OFFSET) return;
 
   const date = etDateStr();
-  const watchlist = getWatchlist(date).filter((r) => r.selected);
+  const watchlist = getWatchlist(date).filter((r) => r.selected); // always from DB
   if (!watchlist.length) return;
 
   const startIso = etToIso(date, '09:30');
@@ -157,8 +169,9 @@ async function jobMonitorBreakouts() {
       });
       if (!signal || !signal.triggered) continue;
 
+      // De-dup across both memory and DB so a mid-session restart can't re-alert.
       const key = `${date}|${row.symbol}|${tf}|${signal.direction}`;
-      if (alertedSignals.has(key)) continue;
+      if (alertedSignals.has(key) || getSignal(date, row.symbol, tf, signal.direction)) continue;
       alertedSignals.add(key);
 
       saveSignal(date, signal, { catalyst: row.catalyst_type });
@@ -215,6 +228,45 @@ function register(job) {
       }
     }
   }, { timezone: TZ });
+}
+
+// On boot, recover or rebuild today's state from the DB (restart safety).
+async function startupCatchUp() {
+  const bootStr = `${nowEt().format('YYYY-MM-DD HH:mm:ss')} ET`;
+  const nowOff = minutesFromOpen(new Date().toISOString());
+  const date = etDateStr();
+  const watchlistCount = getWatchlist(date).filter((r) => r.selected).length;
+  const orFirstOff = Math.min(...config.strategy.orTimeframes); // 5 → 09:35
+
+  const action = decideStartupAction({
+    nowOff, tradingDay: isTradingDay(), watchlistCount, orFirstOff,
+  });
+
+  switch (action) {
+    case 'closed':
+      logger.info(`Booted at ${bootStr} — market closed today; standing down.`);
+      break;
+    case 'pre_market':
+      logger.info(`Booted at ${bootStr} — pre-market; the 09:00 scan will build today's watchlist.`);
+      break;
+    case 'recover':
+      logger.info(`Booted at ${bootStr} — recovered watchlist of ${watchlistCount} stocks from the database.`);
+      break;
+    case 'rebuild':
+      logger.info(`Booted at ${bootStr} — empty watchlist inside the entry window; rebuilding now…`);
+      await jobFinalScan(); // scan → select → persist → Discord watchlist
+      logger.info(`Booted at ${bootStr} — rebuilt watchlist of ${getWatchlist(date).filter((r) => r.selected).length} stocks.`);
+      break;
+    case 'stand_down':
+      state.standDownToday = true;
+      logger.warn(`Booted at ${bootStr} — Missed OR window — standing down for today (will not trade a partial session).`);
+      // Only ping Discord if we booted during the active window (≤ 11:00 cutoff);
+      // a routine evening/overnight restart shouldn't spam the channel.
+      if (nowOff < ENTRY_CUTOFF_OFFSET) {
+        await notify('⚠️ ORB BOT booted after the 9:35 ET opening-range window — standing down for today (no partial session).');
+      }
+      break;
+  }
 }
 
 // Manual triggers for verification: `node src/bot.js --run <key>`
@@ -287,6 +339,11 @@ async function main() {
   }
 
   for (const j of JOBS) register(j);
+
+  // Restart safety: figure out where in the day we booted and recover/rebuild
+  // today's watchlist from the DB, or stand down if we missed the OR window.
+  await startupCatchUp();
+
   logger.info('Scheduler armed. Worker idle until next job. (Ctrl-C / SIGTERM to stop.)');
 }
 

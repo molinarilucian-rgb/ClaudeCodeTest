@@ -145,6 +145,16 @@ Set `SCHEDULE_ENABLED=false` to disable all cron jobs (for testing). Trigger any
 job on demand for verification: `node src/bot.js --run <wake|scan|final|preopen|
 or5|or15|or30|monitor|close>`.
 
+**Restart safety (catch-up on boot).** If the worker restarts mid-morning (e.g.
+a Railway redeploy), it recovers gracefully — it never relies on in-memory state,
+reading the watchlist from the DB on every step. On boot it logs
+`Booted at <time> — <recovered N stocks | rebuilt watchlist | standing down>` and:
+- before 09:00 → waits for the normal 09:00 scan;
+- 09:00–09:35 → reuses the DB watchlist, or rebuilds it immediately if empty;
+- at/after 09:35 → **stands down for the day** (won't trade a partial session).
+Fired signals are de-duplicated against the `signals` table, so a restart can't
+re-send an alert that already went out.
+
 > **Afternoon execution intentionally omitted.** The spec's 3:55 PM force-close,
 > 4:00/4:30 PM P&L + reports, and 5:00 PM reset are NOT scheduled — they require
 > the order-execution engine (Phase 3). Rather than fake trade results, those
