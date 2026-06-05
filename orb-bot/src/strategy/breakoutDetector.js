@@ -91,43 +91,65 @@ export function detectBreakout({ symbol, timeframe, orState, sessionBars, gapPct
   if (!orState || !orState.orComplete || orState.orHigh == null || orState.orLow == null) return null;
   if (!sessionBars || sessionBars.length === 0) return null;
 
-  const candle = sessionBars[sessionBars.length - 1];
-  const offset = minutesFromOpen(candle.t);
-  if (offset < timeframe) return null; // breakout candle must come after the OR window
-
-  const longBreak = candle.h > orState.orHigh;
-  const shortBreak = candle.l < orState.orLow;
-  if (!longBreak && !shortBreak) return null; // nothing broke — not a signal
-
-  // Pick direction; if a single candle pierced both extremes, go by the close.
-  let direction;
-  if (longBreak && shortBreak) {
-    direction = candle.c >= orState.orHigh ? 'long' : candle.c <= orState.orLow ? 'short' : 'long';
-  } else {
-    direction = longBreak ? 'long' : 'short';
+  // The breakout candle is the FIRST candle after the OR window that CLOSES
+  // beyond the OR level (close-based, not just a wick).
+  let bIdx = -1;
+  let direction = null;
+  for (let i = 0; i < sessionBars.length; i++) {
+    if (minutesFromOpen(sessionBars[i].t) < timeframe) continue; // still inside the OR window
+    const c = sessionBars[i].c;
+    if (c > orState.orHigh) { bIdx = i; direction = 'long'; break; }
+    if (c < orState.orLow) { bIdx = i; direction = 'short'; break; }
   }
+  if (bIdx === -1) return null; // nothing has closed beyond the OR yet
   const isLong = direction === 'long';
 
-  const sessionVwap = vwap(sessionBars);
-  // Average volume of the 5 candles immediately BEFORE the breakout candle.
-  const prior = sessionBars.slice(Math.max(0, sessionBars.length - 6), sessionBars.length - 1);
+  const breakoutCandle = sessionBars[bIdx];
+  const confirmCandle = sessionBars[bIdx + 1]; // the NEXT 1-min candle (may not exist yet)
+
+  // False-breakout filter: the next candle must ALSO close beyond the OR.
+  //   pending   — no next candle yet (wait)
+  //   confirmed — next candle also closed beyond
+  //   failed    — next candle closed back inside the OR
+  let confirmation;
+  const beyond = (bar) => (isLong ? bar.c > orState.orHigh : bar.c < orState.orLow);
+  if (!confirmCandle) {
+    confirmation = strategy.requireConfirmation ? 'pending' : 'confirmed';
+  } else if (beyond(confirmCandle)) {
+    confirmation = 'confirmed';
+  } else {
+    confirmation = strategy.requireConfirmation ? 'failed' : 'confirmed';
+  }
+  const failedBreakout = confirmation === 'failed';
+
+  // The decision (entry) happens once the breakout is confirmed; cutoff is checked
+  // against the confirmation candle's time when present, else the breakout candle.
+  const decisionCandle = confirmCandle || breakoutCandle;
+  const decisionOffset = minutesFromOpen(decisionCandle.t);
+  const upToIdx = confirmCandle ? bIdx + 1 : bIdx;
+
+  const sessionVwap = vwap(sessionBars.slice(0, upToIdx + 1));
+  // Volume surge measured on the breakout candle vs the prior 5 candles.
+  const prior = sessionBars.slice(Math.max(0, bIdx - 5), bIdx);
   const avgVol5 = prior.length ? prior.reduce((a, b) => a + b.v, 0) / prior.length : 0;
-  const volumeRatio = avgVol5 > 0 ? candle.v / avgVol5 : 0;
+  const volumeRatio = avgVol5 > 0 ? breakoutCandle.v / avgVol5 : 0;
+
+  const entryPrice = breakoutCandle.c;
 
   const confirmations = {
     orEstablished: true,
-    priceBreak: isLong ? candle.h > orState.orHigh : candle.l < orState.orLow,
-    candleClose: isLong ? candle.c > orState.orHigh : candle.c < orState.orLow,
+    priceBreak: isLong ? breakoutCandle.h > orState.orHigh : breakoutCandle.l < orState.orLow,
+    candleClose: isLong ? breakoutCandle.c > orState.orHigh : breakoutCandle.c < orState.orLow,
+    confirmationCandle: confirmation === 'confirmed', // false-breakout filter
     gapAligned: isLong ? (gapPct ?? 0) >= gap.minAbsGapPct : (gapPct ?? 0) <= -gap.minAbsGapPct,
-    vwapAligned: sessionVwap != null && (isLong ? candle.c > sessionVwap : candle.c < sessionVwap),
+    vwapAligned: sessionVwap != null && (isLong ? entryPrice > sessionVwap : entryPrice < sessionVwap),
     volumeSurge: volumeRatio >= strategy.breakoutVolumeMult,
-    beforeCutoff: offset < ENTRY_CUTOFF_OFFSET,
+    beforeCutoff: decisionOffset < ENTRY_CUTOFF_OFFSET,
     noPosition: !hasPosition,
   };
   const triggered = Object.values(confirmations).every(Boolean);
 
   // Entry at the breakout candle close; stop at the opposite OR extreme + buffer.
-  const entryPrice = candle.c;
   const stopPrice = isLong
     ? orState.orLow - orState.orLow * strategy.stopBufferPct
     : orState.orHigh + orState.orHigh * strategy.stopBufferPct;
@@ -147,8 +169,11 @@ export function detectBreakout({ symbol, timeframe, orState, sessionBars, gapPct
     timeframe,
     direction,
     triggered,
-    time: candle.t,
-    offset,
+    confirmation,        // 'pending' | 'confirmed' | 'failed'
+    failedBreakout,
+    time: breakoutCandle.t,
+    confirmTime: confirmCandle ? confirmCandle.t : null,
+    offset: minutesFromOpen(breakoutCandle.t),
     entryPrice,
     orHigh: orState.orHigh,
     orLow: orState.orLow,
@@ -157,7 +182,7 @@ export function detectBreakout({ symbol, timeframe, orState, sessionBars, gapPct
     targets,
     gapPct: gapPct ?? null,
     vwap: sessionVwap,
-    breakoutVolume: candle.v,
+    breakoutVolume: breakoutCandle.v,
     avgVol5,
     volumeRatio,
     qualityScore: quality.score,

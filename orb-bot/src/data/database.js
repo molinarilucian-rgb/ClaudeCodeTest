@@ -98,6 +98,7 @@ CREATE TABLE IF NOT EXISTS signals (
   score_gap       REAL,
   score_close     REAL,
   score_vwap      REAL,
+  status          TEXT DEFAULT 'confirmed', -- 'confirmed' | 'failed' (false breakout)
   catalyst_type   TEXT,
   created_at      TEXT DEFAULT (datetime('now')),
   UNIQUE(date, symbol, timeframe, direction)
@@ -133,6 +134,9 @@ ensureColumns('watchlist_history', [
   ['prev_close', 'REAL'],
   ['pre_market_price', 'REAL'],
   ['fetched_at', 'TEXT'],
+]);
+ensureColumns('signals', [
+  ['status', "TEXT DEFAULT 'confirmed'"],
 ]);
 
 logger.info(`Database ready at ${DB_PATH}`);
@@ -206,8 +210,8 @@ export function saveSignal(date, signal, extra = {}) {
     INSERT INTO signals
       (date, symbol, timeframe, direction, fired_at, entry_price, stop_price,
        gap_pct, vwap, volume_ratio, quality_score, quality_grade,
-       score_volume, score_gap, score_close, score_vwap, catalyst_type)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+       score_volume, score_gap, score_close, score_vwap, status, catalyst_type)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     ON CONFLICT(date, symbol, timeframe, direction) DO NOTHING
   `).run(
     date, signal.symbol, signal.timeframe, signal.direction,
@@ -215,7 +219,7 @@ export function saveSignal(date, signal, extra = {}) {
     signal.gapPct ?? null, signal.vwap ?? null, signal.volumeRatio ?? null,
     signal.qualityScore ?? null, signal.qualityGrade ?? null,
     b.volume ?? null, b.gap ?? null, b.close ?? null, b.vwap ?? null,
-    extra.catalyst ?? null
+    extra.status ?? 'confirmed', extra.catalyst ?? null
   );
 }
 

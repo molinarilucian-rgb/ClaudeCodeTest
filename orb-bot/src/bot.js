@@ -167,14 +167,27 @@ async function jobMonitorBreakouts() {
         symbol: row.symbol, timeframe: tf, orState: ranges[tf],
         sessionBars: bars, gapPct: row.gap_pct,
       });
-      if (!signal || !signal.triggered) continue;
+      if (!signal) continue;
+      if (signal.confirmation === 'pending') continue; // breakout seen — wait for the next candle
 
-      // De-dup across both memory and DB so a mid-session restart can't re-alert.
+      // De-dup across both memory and DB so a mid-session restart can't re-handle.
       const key = `${date}|${row.symbol}|${tf}|${signal.direction}`;
       if (alertedSignals.has(key) || getSignal(date, row.symbol, tf, signal.direction)) continue;
-      alertedSignals.add(key);
 
-      saveSignal(date, signal, { catalyst: row.catalyst_type });
+      // False breakout: next candle closed back inside the OR. Log separately,
+      // record it, and do NOT count it as a valid signal (no Discord alert).
+      if (signal.failedBreakout) {
+        alertedSignals.add(key);
+        saveSignal(date, signal, { catalyst: row.catalyst_type, status: 'failed' });
+        logger.warn(`❌ FAILED BREAKOUT ${row.symbol} ${tf}m ${signal.direction.toUpperCase()} — next candle closed back inside the OR (no signal)`);
+        continue;
+      }
+
+      // Confirmed structurally but other filters not met → not a valid signal.
+      if (!signal.triggered) continue;
+
+      alertedSignals.add(key);
+      saveSignal(date, signal, { catalyst: row.catalyst_type, status: 'confirmed' });
       logger.info(`🔔 BREAKOUT ${row.symbol} ${tf}m ${signal.direction.toUpperCase()} @ $${signal.entryPrice.toFixed(2)} | quality ${signal.qualityScore}/10 (${signal.qualityGrade}) | vol ${signal.volumeRatio.toFixed(1)}×`);
       const sent = await sendBreakoutAlert(signal, { catalyst: row.catalyst_type });
       if (!sent) logger.warn(`Discord alert not delivered for ${row.symbol} ${tf}m`);

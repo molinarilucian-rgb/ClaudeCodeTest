@@ -175,6 +175,13 @@ targets, a **quality score (1–10)**, and a ✅/❌ checklist of every confirma
 (price break, candle close, gap alignment, VWAP bias, volume surge, cutoff,
 position). Alerts are de-duplicated to one per symbol+timeframe+direction per day.
 
+**False-breakout filter:** after a candle closes beyond the OR level, the bot
+waits for the **next 1-minute candle to also close beyond** before confirming.
+If the next candle closes back inside the OR, the attempt is marked **FAILED
+BREAKOUT**, logged separately, and recorded in the `signals` table with
+`status='failed'` — it never counts as a valid signal and sends no alert.
+(Toggle via `config.strategy.requireConfirmation`.)
+
 **Signal quality score (1–10):** every signal is graded (A+/A/B/C/D) by a
 weighted blend of four strength factors — volume ratio, gap size, how far price
 closed beyond the OR level (as a fraction of the OR range), and distance from

@@ -126,6 +126,9 @@ export const config = {
     eodCloseEt: '15:55',
     stopBufferPct: 0.001, // 0.1% beyond OR level
     breakoutVolumeMult: 1.5, // vs avg of last 5 candles
+    // False-breakout filter: require the candle AFTER the breakout to also close
+    // beyond the OR level before confirming. Set false to accept a single candle.
+    requireConfirmation: true,
     orderFillTimeoutSec: 120, // cancel unfilled limit after 2 min
     killSwitchRiskMult: 1.5, // close if moves >1.5x planned risk against
     atrPeriod: 14,

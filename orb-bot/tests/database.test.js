@@ -102,6 +102,8 @@ test('saveSignal persists quality score + breakdown and de-dups', () => {
   assert.equal(row.volume_ratio, 4.0);
   assert.equal(row.catalyst_type, 'analyst_rating');
 
+  assert.equal(row.status, 'confirmed'); // default status
+
   // second save of the same (date,symbol,tf,direction) is ignored (no dup, no throw)
   dbmod.saveSignal('2026-06-04', { ...signal, qualityScore: 1.0 }, {});
   const after = dbmod.db.prepare(
@@ -109,6 +111,22 @@ test('saveSignal persists quality score + breakdown and de-dups', () => {
   ).get();
   assert.equal(after.n, 1);
   assert.equal(dbmod.getSignal('2026-06-04', 'NVDA', 15, 'long').quality_score, 8.4); // unchanged
+});
+
+test('saveSignal records a failed breakout with status=failed', () => {
+  const failed = {
+    symbol: 'TSLA', timeframe: 5, direction: 'long', time: '2026-06-04T13:40:00Z',
+    entryPrice: 420, stopPrice: 415, gapPct: 2, vwap: 418, volumeRatio: 2,
+    qualityScore: 5.0, qualityGrade: 'C', scoreBreakdown: { volume: 5, gap: 4, close: 6, vwap: 5 },
+  };
+  dbmod.saveSignal('2026-06-04', failed, { catalyst: 'product_news', status: 'failed' });
+  const row = dbmod.getSignal('2026-06-04', 'TSLA', 5, 'long');
+  assert.equal(row.status, 'failed');
+  // failed breakouts are queryable separately from valid signals
+  const failedCount = dbmod.db.prepare(
+    "SELECT COUNT(*) n FROM signals WHERE date='2026-06-04' AND status='failed'"
+  ).get();
+  assert.equal(failedCount.n, 1);
 });
 
 test('saveTrade copies catalyst from the day\'s watchlist pick', () => {
