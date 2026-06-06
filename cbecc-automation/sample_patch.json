@@ -1,0 +1,23 @@
+{
+  "$comment": "Retarget the CEC 1-story example (CZ12 Sacramento) to a Bakersfield CZ13 project. Demonstrates the template-and-patch path against a real CBECC-valid .ribd25.",
+  "proj": {
+    "ClimateZone": "CZ13  (Bakersfield)",
+    "Address": "1234 Example Ave",
+    "ZipCode": 93301,
+    "City": "Bakersfield, CA",
+    "RunTitle": "Doe Residence - 2025 Title 24",
+    "FrontOrientation": 180,
+    "NumBedrooms": 4,
+    "BattMaxCap": 13.5,
+    "PVWDCSysSize": "@raw:( 4.5, 0, 0, 0, 0 )",
+    "PVWAzm[1]": 180
+  },
+  "components": [
+    { "type": "WindowType", "name": "30 / 23 Window",
+      "props": { "NFRCUfactor": 0.28, "NFRCSHGC": 0.22 } },
+    { "type": "Zone", "name": "Conditioned",
+      "props": { "FloorArea": 2150 } },
+    { "type": "HVACHtPump", "name": "Variable Capacity Heat Pump",
+      "props": { "HSPF2": 9.8, "SEER2": 18 } }
+  ]
+}
