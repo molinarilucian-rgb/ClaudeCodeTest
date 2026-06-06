@@ -142,6 +142,18 @@ ensureColumns('watchlist_history', [
 ensureColumns('signals', [
   ['status', "TEXT DEFAULT 'confirmed'"],
 ]);
+// Phase 3: the `trades` table doubles as the live-position store. Each RR
+// variation of a signal is one row, managed in place from entry → exit.
+ensureColumns('trades', [
+  ['status', "TEXT DEFAULT 'pending'"], // pending | open | closed | cancelled
+  ['entry_order_id', 'TEXT'],
+  ['exit_order_id', 'TEXT'],
+  ['intended_entry', 'REAL'], // limit price we asked for (for slippage calc)
+  ['slippage', 'REAL'],       // signed: actual fill − intended, in entry direction
+  ['simulated', 'INTEGER DEFAULT 0'], // 1 = placed in SIMULATION_MODE (no real order)
+  ['opened_at', 'TEXT'],      // when the entry order was placed
+  ['updated_at', 'TEXT'],     // last mutation
+]);
 
 logger.info(`Database ready at ${DB_PATH}`);
 
@@ -256,7 +268,81 @@ export function saveTrade(trade) {
   );
 }
 
+// ---- Live position management (Phase 3) ----
+// Open positions live in the `trades` table (status pending|open) and are
+// updated in place until they close. This is the single source of truth so a
+// mid-session restart can reload and resume managing every open trade.
+
+/**
+ * Insert a freshly-opened position. Idempotent on trade_id (ON CONFLICT DO
+ * NOTHING) so re-firing the same signal can't double-open a leg. Catalyst is
+ * copied from the day's watchlist pick, like saveTrade.
+ */
+export function savePosition(pos) {
+  const wl = getWatchlistEntry(pos.date, pos.symbol) || {};
+  const now = new Date().toISOString();
+  db.prepare(`
+    INSERT INTO trades
+      (trade_id, date, symbol, or_timeframe, rr_ratio, direction, status,
+       entry_time, entry_price, intended_entry, stop_price, target_price, shares,
+       risk_amount, entry_order_id, simulated, opened_at, updated_at,
+       catalyst_type, catalyst_quality, catalyst_sentiment, opening_range_id)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    ON CONFLICT(trade_id) DO NOTHING
+  `).run(
+    pos.tradeId, pos.date, pos.symbol, pos.orTimeframe, pos.rrRatio, pos.direction,
+    pos.status ?? 'pending', pos.entryTime ?? null, pos.entryPrice ?? null,
+    pos.intendedEntry ?? null, pos.stopPrice, pos.targetPrice, pos.shares,
+    pos.riskAmount ?? null, pos.entryOrderId ?? null, pos.simulated ? 1 : 0,
+    pos.openedAt ?? now, now,
+    wl.catalyst_type ?? null, wl.catalyst_quality ?? null, wl.catalyst_sentiment ?? null,
+    pos.openingRangeId ?? null
+  );
+  return getPosition(pos.tradeId);
+}
+
+// Columns updatePosition is allowed to mutate (whitelist guards against
+// injection via dynamic key names).
+const UPDATABLE = new Set([
+  'status', 'entry_time', 'entry_price', 'intended_entry', 'slippage',
+  'stop_price', 'target_price', 'shares', 'entry_order_id', 'exit_order_id',
+  'exit_time', 'exit_price', 'exit_reason', 'pnl', 'pnl_pct', 'risk_amount',
+  'r_multiple', 'simulated',
+]);
+
+/** Patch an existing position row by trade_id. `updated_at` is always bumped. */
+export function updatePosition(tradeId, fields = {}) {
+  const keys = Object.keys(fields).filter((k) => UPDATABLE.has(k));
+  if (!keys.length) return;
+  const sets = keys.map((k) => `${k}=?`).concat('updated_at=?');
+  const vals = keys.map((k) => fields[k]);
+  vals.push(new Date().toISOString(), tradeId);
+  db.prepare(`UPDATE trades SET ${sets.join(', ')} WHERE trade_id=?`).run(...vals);
+  return getPosition(tradeId);
+}
+
+/** Fetch one position/trade by id. */
+export function getPosition(tradeId) {
+  return db.prepare('SELECT * FROM trades WHERE trade_id=?').get(tradeId);
+}
+
+/**
+ * All positions still being managed (status pending or open), across all dates
+ * so a restart never strands a trade. Ordered oldest-first.
+ */
+export function getOpenPositions() {
+  return db.prepare(
+    "SELECT * FROM trades WHERE status IN ('pending','open') ORDER BY opened_at ASC"
+  ).all();
+}
+
+/** Closed/cancelled trades for a date (Phase 4 reporting will build on this). */
+export function getTradesForDate(date) {
+  return db.prepare('SELECT * FROM trades WHERE date=? ORDER BY opened_at ASC').all(date);
+}
+
 export default {
   db, saveWatchlistEntry, getWatchlistEntry, getWatchlist,
   saveOpeningRange, getOpeningRange, saveSignal, getSignal, saveTrade,
+  savePosition, updatePosition, getPosition, getOpenPositions, getTradesForDate,
 };

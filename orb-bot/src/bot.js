@@ -10,6 +10,7 @@ import { sendDiscord, sendBreakoutAlert } from './notify/discord.js';
 import { getWatchlist, saveOpeningRange, saveSignal, getSignal } from './data/database.js';
 import { decideStartupAction } from './startupPolicy.js';
 import { formatMonitorStatus, formatMonitorPending } from './monitorStatus.js';
+import { executionEngine } from './execution/executionEngine.js';
 
 /**
  * ORB Bot — main entry / scheduler (Phase 6, morning timeline).
@@ -17,11 +18,12 @@ import { formatMonitorStatus, formatMonitorPending } from './monitorStatus.js';
  * Long-lived worker (Railway/PM2). All jobs are scheduled in America/New_York
  * so they fire at the correct ET market time regardless of host timezone.
  *
- * IMPLEMENTED (Phases 1–2): pre-market scans → watchlist, opening-range locks
- * (5/15/30-min), breakout detection → Discord signal alerts.
- * NOT implemented (Phases 3–4): order execution, position management, EOD
- * close, P&L/reports. Those afternoon steps are intentionally OMITTED rather
- * than faked — the bot places NO trades and reports NO trade results.
+ * IMPLEMENTED (Phases 1–3): pre-market scans → watchlist, opening-range locks
+ * (5/15/30-min), breakout detection → Discord signal alerts, AND order execution
+ * — position sizing, entry/exit management, 3:55 PM EOD force-close, kill switch,
+ * and restart-safe position recovery. Execution is gated behind SIMULATION_MODE
+ * (default ON: logs orders, sends nothing to Alpaca).
+ * NOT implemented (Phase 4): multi-strategy aggregation & daily P&L reporting.
  */
 
 const TZ = config.timezone;
@@ -222,7 +224,31 @@ async function jobMonitorBreakouts() {
       logger.info(`🔔 BREAKOUT ${row.symbol} ${tf}m ${signal.direction.toUpperCase()} @ $${signal.entryPrice.toFixed(2)} | quality ${signal.qualityScore}/10 (${signal.qualityGrade}) | vol ${signal.volumeRatio.toFixed(1)}×`);
       const sent = await sendBreakoutAlert(signal, { catalyst: row.catalyst_type });
       if (!sent) logger.warn(`Discord alert not delivered for ${row.symbol} ${tf}m`);
+
+      // Phase 3: open the three RR-variation positions for this signal (gated by
+      // SIMULATION_MODE). Isolated so an execution error never breaks the monitor.
+      try {
+        await executionEngine.openPositionsForSignal(signal, { catalyst: row.catalyst_type });
+      } catch (err) {
+        logger.error(`Execution failed for ${row.symbol} ${tf}m ${signal.direction}: ${err.stack || err.message}`);
+      }
     }
+  }
+}
+
+// Every 30s during market hours — manage open positions (fills, stops, targets,
+// kill switch). Reads state from the DB each tick, so it's restart-safe.
+async function jobManagePositions() {
+  await executionEngine.manageOpenPositions();
+}
+
+// 15:55 ET — force-close every open position and cancel unfilled entries.
+async function jobEodClose() {
+  const { closed, cancelled } = await executionEngine.forceCloseAll('EOD_CLOSE');
+  if (closed || cancelled) {
+    await notify(`🔔 EOD force-close (15:55 ET): ${closed} position(s) closed, ${cancelled} pending order(s) cancelled.`);
+  } else {
+    logger.info('EOD force-close: nothing open.');
   }
 }
 
@@ -248,8 +274,11 @@ const JOBS = [
   { expr: '45 9 * * 1-5', name: '09:45 lock 15-min OR',        fn: () => lockOpeningRange(15),      tradingDayOnly: true },
   { expr: '0 10 * * 1-5', name: '10:00 lock 30-min OR',        fn: () => lockOpeningRange(30, ' — all timeframes active, breakout detection live'), tradingDayOnly: true },
   { expr: '0 11 * * 1-5', name: '11:00 entry window close',    fn: jobEntryClose,                   tradingDayOnly: true },
+  { expr: '55 15 * * 1-5', name: '15:55 EOD force-close',      fn: jobEodClose,                     tradingDayOnly: true },
   // 6-field (with seconds): every 30s during the 9:xx and 10:xx ET hours
   { expr: '*/30 * 9,10 * * 1-5', name: 'breakout monitor (30s)', fn: jobMonitorBreakouts,           tradingDayOnly: true, quiet: true },
+  // Position management every 30s through the session (09:30–15:59 ET).
+  { expr: '*/30 * 9-15 * * 1-5', name: 'position manager (30s)', fn: jobManagePositions,           tradingDayOnly: true, quiet: true },
   { expr: '*/30 * * * *', name: 'heartbeat',                   fn: jobHeartbeat,                    tradingDayOnly: false },
 ];
 
@@ -311,6 +340,17 @@ async function startupCatchUp() {
       }
       break;
   }
+
+  // Phase 3 restart safety: reload any open positions and resume managing them.
+  // Runs even when standing down for NEW signals — existing trades must not be
+  // forgotten across a restart. (Skipped only when the market is closed today.)
+  if (action !== 'closed') {
+    try {
+      await executionEngine.recoverOpenPositions();
+    } catch (err) {
+      logger.error(`Position recovery failed: ${err.stack || err.message}`);
+    }
+  }
 }
 
 // Manual triggers for verification: `node src/bot.js --run <key>`
@@ -324,12 +364,14 @@ const RUNNERS = {
   or30: () => lockOpeningRange(30, ' — all timeframes active, breakout detection live'),
   monitor: jobMonitorBreakouts,
   close: jobEntryClose,
+  manage: jobManagePositions,
+  eod: jobEodClose,
 };
 
 async function main() {
   const check = process.argv.includes('--check');
   const runIdx = process.argv.indexOf('--run');
-  logger.info(`ORB bot starting — mode=${config.alpaca.paper ? 'PAPER' : 'LIVE'} | tz=${TZ} | node=${process.version}`);
+  logger.info(`ORB bot starting — mode=${config.alpaca.paper ? 'PAPER' : 'LIVE'} | execution=${config.execution.simulationMode ? 'SIMULATION' : 'LIVE-PAPER'} | tz=${TZ} | node=${process.version}`);
 
   if (runIdx !== -1) {
     const key = process.argv[runIdx + 1];
@@ -375,7 +417,11 @@ async function main() {
 
   logger.info('Scheduled jobs (ET):');
   for (const j of JOBS) logger.info(`  ${j.expr.padEnd(16)} ${j.name}`);
-  logger.warn('Phases 1–2 only: scans, OR locks & breakout SIGNALS. No orders are placed (Phase 3 pending).');
+  if (config.execution.simulationMode) {
+    logger.warn('SIMULATION_MODE=ON — Phase 3 execution active, but orders are LOGGED ONLY (nothing sent to Alpaca).');
+  } else {
+    logger.warn('🔴 SIMULATION_MODE=OFF — LIVE execution: real paper orders WILL be submitted to Alpaca.');
+  }
 
   if (check) {
     logger.info('--check OK: startup + connection + schedule validated. Exiting.');

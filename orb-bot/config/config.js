@@ -42,6 +42,14 @@ export const config = {
     maxRiskPerTrade: Number(process.env.MAX_RISK_PER_TRADE || 0.01),
   },
 
+  // ----- Execution (Phase 3) -----
+  execution: {
+    // MASTER SAFETY FLAG. true = SIMULATION: log every order the bot WOULD place
+    // but submit NOTHING to Alpaca. false = LIVE: submit real (paper) orders.
+    // Defaults to TRUE — you must explicitly set SIMULATION_MODE=false to trade.
+    simulationMode: (process.env.SIMULATION_MODE ?? 'true') !== 'false',
+  },
+
   perplexity: {
     apiKey: process.env.PERPLEXITY_API_KEY || '',
     baseUrl: 'https://api.perplexity.ai/chat/completions',

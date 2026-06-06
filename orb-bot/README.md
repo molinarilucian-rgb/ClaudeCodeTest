@@ -72,8 +72,12 @@ orb-bot/
     strategy/
       openingRange.js      # 5/15/30-min OR calc (batch + live tracker)  [Phase 2]
       breakoutDetector.js  # ORB entry signal + all confirmations (VWAP/gap/vol)
+    execution/
+      positionSizer.js     # risk-based share sizing + buying-power cap  [Phase 3]
+      broker.js            # SIMULATION_MODE-gated order ops (sim vs live paper)
+      executionEngine.js   # open/manage/exit positions, EOD close, recovery
     notify/
-      discord.js           # Discord webhook alerts for breakout signals
+      discord.js           # Discord webhook alerts for signals + order lifecycle
     utils/
       logger.js            # winston (console + daily file)
       timeUtils.js         # dayjs ET timezone, trading-day/holiday helpers
@@ -137,13 +141,15 @@ right ET market time regardless of host timezone):
 | 09:35 | lock 5-min opening range | 🔒 5-min OR |
 | 09:45 | lock 15-min opening range | 🔒 15-min OR |
 | 10:00 | lock 30-min opening range | 🔒 30-min OR |
-| 09:35–11:00 | breakout monitor, **every 30s** | 🚨 on signal |
-| 11:00 | close entry window | 🚫 closed |
+| 09:35–11:00 | breakout monitor, **every 30s** → opens positions | 🚨 on signal · 📝 on order |
+| 09:30–15:59 | position manager, **every 30s** (fills, stops, targets, kill switch) | ✅/🏁 on fill/close |
+| 11:00 | close entry window (no new signals) | 🚫 closed |
+| 15:55 | EOD force-close all open positions, cancel unfilled | 🔔 EOD summary |
 | every 30 min | heartbeat | — |
 
 Set `SCHEDULE_ENABLED=false` to disable all cron jobs (for testing). Trigger any
 job on demand for verification: `node src/bot.js --run <wake|scan|final|preopen|
-or5|or15|or30|monitor|close>`.
+or5|or15|or30|monitor|close|manage|eod>`.
 
 **Restart safety (catch-up on boot).** If the worker restarts mid-morning (e.g.
 a Railway redeploy), it recovers gracefully — it never relies on in-memory state,
@@ -155,14 +161,16 @@ reading the watchlist from the DB on every step. On boot it logs
 Fired signals are de-duplicated against the `signals` table, so a restart can't
 re-send an alert that already went out.
 
-> **Afternoon execution intentionally omitted.** The spec's 3:55 PM force-close,
-> 4:00/4:30 PM P&L + reports, and 5:00 PM reset are NOT scheduled — they require
-> the order-execution engine (Phase 3). Rather than fake trade results, those
-> jobs are left out until execution exists.
+> **Phase 3 execution is live (gated by `SIMULATION_MODE`).** Confirmed breakouts
+> are sized, opened, and managed to exit, with a 3:55 PM ET force-close. With
+> `SIMULATION_MODE=true` (the default) every order is **logged only** — nothing
+> is sent to Alpaca — so you can watch the full lifecycle before risking a cent.
+> Only the Phase 4 daily P&L **reports/aggregation** (4:00/4:30 PM, 5:00 PM reset)
+> remain unbuilt.
 
-> **What it does today:** builds & logs the daily watchlist and opening ranges.
-> **What it does NOT do yet:** breakout detection & order execution (Phases 3–4),
-> so it places **no trades**. The logs say so explicitly on every startup.
+> **What it does today:** builds the daily watchlist + opening ranges, detects
+> breakouts, and (Phase 3) sizes/opens/manages positions for each RR variation.
+> **What it does NOT do yet:** Phase 4 multi-strategy aggregation & daily reports.
 
 ## Breakout signal notifications (Discord)
 
@@ -203,8 +211,61 @@ Set up:
 2. Add `DISCORD_WEBHOOK_URL` to `.env` (local) or the Railway dashboard (cloud).
 3. Verify it: `node src/notify/discord.js` sends a sample alert to the channel.
 
-> These are **signal notifications only** — the bot still places no orders
-> (execution is Phase 3). It tells you what it *would* trade.
+In `SIMULATION_MODE` these stay **signal + simulated-order** notifications — the
+bot tells you exactly what it *would* trade (sizing, fills, exits, P&L) without
+sending anything to Alpaca.
+
+## Order execution & position management (Phase 3)
+
+When a breakout passes all confirmations, the execution engine takes over —
+**gated behind the `SIMULATION_MODE` safety flag** (default `true`):
+
+- **`SIMULATION_MODE=true`** — logs every order the bot *would* place (full
+  details) and manages a virtual position end-to-end, but submits **nothing** to
+  Alpaca. The mode is printed on startup and on every order decision.
+- **`SIMULATION_MODE=false`** — submits real **paper** orders to Alpaca.
+
+**Position sizing.** Risk per trade = `ACCOUNT_SIZE × MAX_RISK_PER_TRADE`. Shares
+= `floor(risk ÷ (entry − stop))`. A trade is **skipped** (never silently shrunk)
+if it can't be sized — entry == stop, < 1 share, or notional > available buying
+power. The full math is logged for every signal:
+`sizing | account $100,000 × 1.00% = risk $1000.00 | entry $101.50 stop $99.00 →
+per-share risk $2.50 | shares 400 | notional $40,600.00`.
+
+**Three RR variations per signal.** Each signal opens the 1:1, 1:1.5, and 1:2
+reward:risk targets as **independent positions** (each risk-sized on its own,
+each tracked to its own outcome) so you can compare which RR performs best. Stop
+is the opposite OR extreme; entry is a **limit** at the breakout candle close.
+
+**Entry.** A DAY limit order at the breakout close. Unfilled after 2 minutes →
+cancelled and logged `CANCELLED_UNFILLED`. On fill, the actual price and
+**slippage** vs the intended price are recorded.
+
+**Exit management (poll-based, every 30s).** Each open leg is checked against:
+- **Target** → limit exit at the target price (`TARGET`).
+- **Stop** → market exit at the OR extreme (`STOP`).
+- **Kill switch** → if price moves > `1.5×` planned risk against entry, close
+  immediately (`KILL_SWITCH`) — catches a gap clean through the stop.
+- **EOD** → all positions force-closed at **3:55 PM ET** (`EOD_CLOSE`).
+
+Realized P&L, R-multiple, and % are computed and stored on close.
+
+**Persistence & restart recovery.** Every position is written to the SQLite DB
+(`trades` table) the instant it opens — symbol, direction, entry, stop, all
+targets, shares, RR variation, timestamps, and Alpaca order IDs — and updated on
+every fill, cancel, and exit. The manager reads open positions from the DB on
+**every** tick, so a mid-session restart (e.g. a Railway redeploy) reloads and
+resumes managing every open trade without forgetting any. On boot the bot logs
+the recovered positions and pings Discord with a summary.
+
+**Notifications.** Discord message on every order **placed**, **filled**, and
+**closed** (with close reason and realized P&L), plus cancelled entries and the
+restart-recovery summary. Everything is also logged to the console with ET
+timestamps (visible in Railway logs).
+
+> ⚠️ **Going live:** flip `SIMULATION_MODE=false` only after watching the
+> simulated logs and confirming sizing/behaviour. It still uses the **paper**
+> Alpaca endpoint (`config.alpaca.paper` is hard-locked `true`).
 
 ## Deploying to Railway.app
 
@@ -222,6 +283,7 @@ The bot runs as a long-lived **worker** (no web port needed). Config files:
    - `ALPACA_BASE_URL=https://paper-api.alpaca.markets`
    - `ALPACA_DATA_URL=https://data.alpaca.markets`
    - `ACCOUNT_SIZE`, `MAX_RISK_PER_TRADE`, `TIMEZONE=America/New_York`
+   - `SIMULATION_MODE=true` (keep `true` until you've watched the simulated logs)
    - `PERPLEXITY_API_KEY`
 4. Railway builds with Nixpacks and runs `node src/bot.js` (from `railway.json`).
    If it picks the wrong Node version, set `NIXPACKS_NODE_VERSION=24` as a variable.

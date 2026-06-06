@@ -115,6 +115,55 @@ export async function getCalendar(start, end) {
   return withRetry(() => alpaca.getCalendar({ start, end }), 'getCalendar');
 }
 
+// ---- Order execution (Phase 3) ----
+// Thin wrappers over the Alpaca trading API. The SIMULATION_MODE gate lives in
+// the broker layer (src/execution/broker.js); these only hit the network when
+// the broker is in LIVE mode, so they always perform real (paper) order ops.
+
+/** Submit an order. `params` is the raw Alpaca order body (snake_case fields). */
+export async function createOrder(params) {
+  return withRetry(() => alpaca.createOrder(params), `createOrder ${params.symbol}`);
+}
+
+/** Fetch a single order by Alpaca order id. */
+export async function getOrder(orderId) {
+  return withRetry(() => alpaca.getOrder(orderId), `getOrder ${orderId}`);
+}
+
+/** Cancel an open order by id. */
+export async function cancelOrder(orderId) {
+  return withRetry(() => alpaca.cancelOrder(orderId), `cancelOrder ${orderId}`);
+}
+
+/** Open position for a symbol, or null if Alpaca reports none (404). */
+export async function getPosition(symbol) {
+  try {
+    return await withRetry(() => alpaca.getPosition(symbol), `getPosition ${symbol}`);
+  } catch (err) {
+    if ((err?.statusCode || err?.response?.status) === 404) return null;
+    throw err;
+  }
+}
+
+/**
+ * Latest trade price for a symbol. Falls back to the most recent 1-min bar
+ * close if the latest-trade endpoint is empty (thin IEX names can lag).
+ */
+export async function getLatestPrice(symbol) {
+  try {
+    const t = await withRetry(() => alpaca.getLatestTrade(symbol), `getLatestTrade ${symbol}`);
+    const p = t?.Price ?? t?.price ?? t?.p;
+    if (p != null && Number.isFinite(Number(p))) return Number(p);
+  } catch (err) {
+    logger.warn(`getLatestPrice(${symbol}) latest-trade failed, falling back to bars: ${err.message}`);
+  }
+  // Fallback: last close in the trailing ~30 minutes.
+  const end = new Date();
+  const start = new Date(end.getTime() - 30 * 60 * 1000);
+  const bars = await getMinuteBars(symbol, start.toISOString(), end.toISOString());
+  return bars.length ? bars[bars.length - 1].c : null;
+}
+
 // CLI: `node src/data/marketData.js` → connection smoke test.
 if (import.meta.url === `file://${process.argv[1]}`.replace(/\\/g, '/') ||
     process.argv[1]?.endsWith('marketData.js')) {
@@ -132,4 +181,5 @@ if (import.meta.url === `file://${process.argv[1]}`.replace(/\\/g, '/') ||
 export default {
   alpaca, getAccount, getTradableAssets, getAsset,
   getDailyBars, getMinuteBars, getSnapshots, getCalendar,
+  createOrder, getOrder, cancelOrder, getPosition, getLatestPrice,
 };

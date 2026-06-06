@@ -107,6 +107,83 @@ export async function sendBreakoutAlert(signal, extra = {}) {
   });
 }
 
+/**
+ * Order/position lifecycle notification (Phase 3). One Discord message per
+ * order placed, filled, and closed (with reason + realized P&L), plus
+ * cancelled entries and a restart recovery summary.
+ *
+ * @param {'placed'|'filled'|'closed'|'cancelled'|'recovered'} kind
+ * @param {object|null} pos  a `trades` row (the position), or null for 'recovered'
+ * @param {object} [extra]   { catalyst, reason, pnl, rMultiple, pnlPct, slippage, positions }
+ */
+export async function sendOrderNotification(kind, pos, extra = {}) {
+  const money = (n) => (n == null ? '—' : `$${Number(n).toFixed(2)}`);
+  const simTag = pos?.simulated ? ' · SIM (no real order)' : '';
+
+  if (kind === 'recovered') {
+    const list = (extra.positions || [])
+      .map((p) => `• ${p.symbol} ${p.direction} ×${p.shares} (${p.or_timeframe}m rr${p.rr_ratio}) — ${p.status}`)
+      .join('\n') || 'none';
+    return sendDiscord({
+      embeds: [{
+        title: `🔄 Positions recovered on restart (${(extra.positions || []).length})`,
+        description: 'Resuming management of open positions from the database.',
+        color: COLORS.info,
+        fields: [{ name: 'Positions', value: list, inline: false }],
+        timestamp: new Date().toISOString(),
+        footer: { text: 'ORB Bot · Phase 3 execution' },
+      }],
+    });
+  }
+
+  if (!pos) return false;
+  const dirIcon = pos.direction === 'long' ? '🟢 LONG' : '🔴 SHORT';
+  const tag = `${pos.symbol} ${pos.or_timeframe}m rr${pos.rr_ratio}`;
+
+  const meta = {
+    placed: { icon: '📝', verb: 'ENTRY PLACED', color: COLORS[pos.direction] ?? COLORS.info },
+    filled: { icon: '✅', verb: 'FILLED', color: COLORS[pos.direction] ?? COLORS.info },
+    closed: { icon: '🏁', verb: `CLOSED · ${extra.reason || pos.exit_reason || ''}`.trim(), color: (extra.pnl ?? 0) >= 0 ? COLORS.long : COLORS.short },
+    cancelled: { icon: '🚫', verb: `CANCELLED · ${extra.reason || pos.exit_reason || ''}`.trim(), color: COLORS.short },
+  }[kind];
+  if (!meta) return false;
+
+  const fields = [
+    { name: 'Direction', value: dirIcon, inline: true },
+    { name: 'Shares', value: String(pos.shares), inline: true },
+    { name: 'Entry', value: money(pos.entry_price ?? pos.intended_entry), inline: true },
+  ];
+  if (kind === 'filled' && extra.slippage != null) {
+    fields.push({ name: 'Slippage', value: money(extra.slippage), inline: true });
+  }
+  if (kind === 'placed' || kind === 'filled') {
+    fields.push(
+      { name: 'Stop', value: money(pos.stop_price), inline: true },
+      { name: 'Target', value: money(pos.target_price), inline: true },
+    );
+    if (extra.catalyst) fields.push({ name: 'Catalyst', value: String(extra.catalyst), inline: false });
+  }
+  if (kind === 'closed') {
+    const pnl = extra.pnl ?? pos.pnl ?? 0;
+    const sign = pnl >= 0 ? '+' : '';
+    fields.push(
+      { name: 'Exit', value: money(extra.exitPrice ?? pos.exit_price), inline: true },
+      { name: 'Realized P&L', value: `${sign}${money(pnl).slice(1)}`, inline: true },
+      { name: 'R / %', value: `${sign}${extra.rMultiple ?? pos.r_multiple ?? 0}R · ${sign}${extra.pnlPct ?? pos.pnl_pct ?? 0}%`, inline: true },
+    );
+  }
+
+  return sendDiscord({
+    embeds: [{
+      title: `${meta.icon} ${meta.verb} — ${tag}${simTag}`,
+      color: meta.color,
+      fields,
+      timestamp: new Date().toISOString(),
+      footer: { text: `ORB Bot · Phase 3 ${pos.simulated ? 'simulation' : 'paper'} execution` },
+    }],
+  });
+}
+
 // CLI: `node src/notify/discord.js` sends a sample alert to verify the webhook.
 if (process.argv[1]?.endsWith('discord.js')) {
   const sample = {
@@ -126,4 +203,4 @@ if (process.argv[1]?.endsWith('discord.js')) {
     .then((ok) => { console.log(ok ? 'Test alert sent ✅' : 'Send failed (check DISCORD_WEBHOOK_URL) ❌'); process.exit(ok ? 0 : 1); });
 }
 
-export default { sendDiscord, sendBreakoutAlert };
+export default { sendDiscord, sendBreakoutAlert, sendOrderNotification };
