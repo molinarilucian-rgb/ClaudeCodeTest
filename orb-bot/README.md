@@ -175,6 +175,15 @@ targets, a **quality score (1–10)**, and a ✅/❌ checklist of every confirma
 (price break, candle close, gap alignment, VWAP bias, volume surge, cutoff,
 position). Alerts are de-duplicated to one per symbol+timeframe+direction per day.
 
+**Monitor audit log:** once per minute per watchlist stock/timeframe (while the
+OR is established), the monitor logs price vs the relevant OR level and the
+distance to break — e.g. `AVGO 15m monitor | price 400.18 | OR low 400.00 |
++0.18 above (no break)`. When a candle closes beyond the OR but awaits its
+confirmation candle it logs `… PENDING — closed below OR low, awaiting
+next-candle confirmation`. This makes it possible to reconstruct exactly when
+price approached, touched, and broke the level. Toggle via
+`config.strategy.logMonitorStatus`.
+
 **False-breakout filter:** after a candle closes beyond the OR level, the bot
 waits for the **next 1-minute candle to also close beyond** before confirming.
 If the next candle closes back inside the OR, the attempt is marked **FAILED

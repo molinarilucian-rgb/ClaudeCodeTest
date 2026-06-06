@@ -9,6 +9,7 @@ import { detectBreakout, ENTRY_CUTOFF_OFFSET } from './strategy/breakoutDetector
 import { sendDiscord, sendBreakoutAlert } from './notify/discord.js';
 import { getWatchlist, saveOpeningRange, saveSignal, getSignal } from './data/database.js';
 import { decideStartupAction } from './startupPolicy.js';
+import { formatMonitorStatus, formatMonitorPending } from './monitorStatus.js';
 
 /**
  * ORB Bot — main entry / scheduler (Phase 6, morning timeline).
@@ -28,6 +29,10 @@ const TZ = config.timezone;
 // De-dup: at most one breakout alert per symbol+timeframe+direction per day.
 // Backed by the `signals` table too, so a mid-session restart can't re-fire.
 const alertedSignals = new Set();
+
+// Throttle for the periodic monitor status log: key `symbol|tf` → last bar
+// timestamp logged, so we emit at most one line per new 1-min bar per symbol+tf.
+const monitorStatusSeen = new Map();
 
 // Runtime state. `standDownToday` is set when the bot boots after the OR window
 // (missed start) so it won't trade a partial session; reset at the 05:00 wake.
@@ -59,6 +64,7 @@ async function verifyConnection({ maxMs = 10 * 60 * 1000, intervalMs = 60 * 1000
 // 05:00 — wake up, verify connection (with retry), holiday stand-down.
 async function jobWakeUp() {
   alertedSignals.clear(); // reset daily de-dup
+  monitorStatusSeen.clear(); // reset periodic-log throttle
   state.standDownToday = false; // new day — clear any prior late-boot stand-down
   if (isHoliday()) {
     logger.info('Market holiday today — standing down.');
@@ -164,13 +170,34 @@ async function jobMonitorBreakouts() {
   for (const row of watchlist) {
     const bars = await getMinuteBars(row.symbol, startIso, nowIso);
     if (!bars.length) continue;
+    const lastBar = bars[bars.length - 1];
+    const price = lastBar.c;
     const ranges = computeAllOpeningRanges(bars, config.strategy.orTimeframes, nowIso);
 
     for (const tf of config.strategy.orTimeframes) {
+      const orState = ranges[tf];
       const signal = detectBreakout({
-        symbol: row.symbol, timeframe: tf, orState: ranges[tf],
+        symbol: row.symbol, timeframe: tf, orState,
         sessionBars: bars, gapPct: row.gap_pct,
       });
+
+      // Periodic audit log: once per new 1-min bar per symbol+timeframe, once the
+      // OR is established. Logs the pending-confirmation state, else price vs level.
+      if (config.strategy.logMonitorStatus && orState.orComplete && orState.orHigh != null) {
+        const statusKey = `${row.symbol}|${tf}`;
+        if (monitorStatusSeen.get(statusKey) !== lastBar.t) {
+          monitorStatusSeen.set(statusKey, lastBar.t);
+          if (signal && signal.confirmation === 'pending') {
+            logger.info(formatMonitorPending({ symbol: row.symbol, timeframe: tf, direction: signal.direction }));
+          } else {
+            logger.info(formatMonitorStatus({
+              symbol: row.symbol, timeframe: tf, price,
+              orHigh: orState.orHigh, orLow: orState.orLow, gapPct: row.gap_pct,
+            }));
+          }
+        }
+      }
+
       if (!signal) continue;
       if (signal.confirmation === 'pending') continue; // breakout seen — wait for the next candle
 

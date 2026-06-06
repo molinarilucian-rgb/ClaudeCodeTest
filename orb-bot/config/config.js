@@ -129,6 +129,8 @@ export const config = {
     // False-breakout filter: require the candle AFTER the breakout to also close
     // beyond the OR level before confirming. Set false to accept a single candle.
     requireConfirmation: true,
+    // Periodic monitor audit log (price vs OR level, once/minute per symbol+tf).
+    logMonitorStatus: true,
     orderFillTimeoutSec: 120, // cancel unfilled limit after 2 min
     killSwitchRiskMult: 1.5, // close if moves >1.5x planned risk against
     atrPeriod: 14,
