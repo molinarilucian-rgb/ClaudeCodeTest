@@ -1,0 +1,2 @@
+tag,system_kind,equipment_ref,duct_location,duct_r,duct_leakage_pct
+HVAC1,ducted_heat_pump,1,conditioned,8,5

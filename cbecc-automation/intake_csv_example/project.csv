@@ -1,0 +1,12 @@
+key,value
+code_cycle,2025
+name,Doe Residence
+address,1234 Example Ave
+city,Bakersfield
+zip,93301
+climate_zone,13
+building_type,single_family
+stories,1
+conditioned_floor_area_ft2,2150
+num_dwelling_units,1
+front_orientation_deg,180
