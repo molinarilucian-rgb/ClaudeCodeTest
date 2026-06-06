@@ -9,12 +9,19 @@ CBECC-Com (`.cibd` → NRCC) can be added later. Platform: Windows (CBECC's nati
 OS). Volume: ~20 reports/month. Code cycle: **2025** is in effect as of 2026-01-01.
 
 > **Hard rules this design obeys**
-> 1. **No GUI automation.** We generate/modify the XML project file directly and
->    invoke the CBECC engine in batch. No screen-clicking.
+> 1. **No GUI automation.** We modify the project input file directly and invoke
+>    the CBECC engine in batch. No screen-clicking.
 > 2. **Code-cycle tagging everywhere.** Every reference-DB row carries a
->    `code_cycle_id`; the generator refuses to mix cycles.
+>    `code_cycle_id`; the tooling refuses to mix cycles.
 > 3. **Human-QA gate is mandatory.** No straight-through automation of data
 >    extraction into a permit-bound CF1R. A person signs off before final docs.
+
+> ⚠ **Phase 0 changed the design — see [`PHASE0_FINDINGS.md`](PHASE0_FINDINGS.md).**
+> CBECC 2025 is installed and headless runs are feasible (`CBECC-CLI25.exe` +
+> native Batch Run Set CSVs). But a real `.ribd25` is **BEMProc indented text,
+> not XML** — so the native path is **template-and-patch** (`ribd_patch.py`,
+> verified against a real file), and `generate_ribd.py` is demoted to a data-flow
+> demo. The reference DB / intake / QA gate / CSV layers are unchanged.
 
 ---
 
@@ -39,16 +46,18 @@ OS). Volume: ~20 reports/month. Code cycle: **2025** is in effect as of 2026-01-
                   │ verified rows                            │
                   ▼                                          ▼
         ┌──────────────────────────────────────────────────────────┐
-        │  XML GENERATOR  (generate_ribd.py)                        │
-        │  • validates: referential integrity, code-cycle match,    │
-        │    required fields, (strict) verified=1                    │
-        │  • emits project.ribd (SDD XML)                            │
+        │  TEMPLATE + PATCH  (ribd_patch.py)            [native path]│
+        │  • pick closest CBECC-valid example .ribd25 (BEMProc text)│
+        │  • overwrite only project-specific values from intake/DB   │
+        │  • validates: code-cycle match, (strict) verified=1        │
+        │  (generate_ribd.py = XML data-flow demo, NOT the native    │
+        │   file — see PHASE0_FINDINGS.md)                           │
         └─────────────────────────┬────────────────────────────────┘
                                   ▼
         ┌──────────────────────────────────────────────────────────┐
-        │  CBECC BATCH RUN  (CBECC-Res engine, command line)        │
-        │  • loads .ribd → runs CSE simulation → compliance result  │
-        │  ⚠ Phase 0 must CONFIRM the exact CLI/batch invocation     │
+        │  CBECC BATCH RUN  (CBECC-CLI25.exe / native Run Set CSV)  │
+        │  • loads .ribd25 → CSE simulation → compliance result     │
+        │  ✅ engine + CLI exe present; exact CLI keyword = open item │
         └─────────────────────────┬────────────────────────────────┘
                                   ▼
         ┌──────────────────────────────────────────────────────────┐
@@ -238,5 +247,8 @@ Start Phase 4 (deterministic parsing of structured inputs) and treat Phase 5 as 
 | `intake_from_csv.py` | Spreadsheet (CSV pack) → `intake.json`; `templates` + `build` | 4 |
 | `intake_csv_example/` | Worked CSV pack (matches `sample_intake.json`) | 4 |
 | `verify_cbecc.py` | Locate CBECC install + probe batch/CLI capability | 0 |
+| `PHASE0_FINDINGS.md` | **What Phase 0 found** (CLI, file format, locations, design change) | 0 |
+| `ribd_patch.py` | **Native path:** patch a real `.ribd25` BEMProc template | 2 |
+| `sample_patch.json` | Example patch (retarget CEC example → Bakersfield CZ13) | 2 |
 | `run.ps1` | Wrapper: auto-find real Python, forward args to any script | — |
-| `reference_files/` | **Drop a real CBECC-passing `.ribd` here** to finish the mapping | — |
+| `reference_files/` | Holds `1storyExample.ribd25` (real CBECC template, git-ignored) | — |

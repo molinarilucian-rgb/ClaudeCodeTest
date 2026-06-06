@@ -1,8 +1,14 @@
 #!/usr/bin/env python3
 r"""
-generate_ribd.py — Starter CBECC-Res .ribd XML generator.
+generate_ribd.py — illustrative XML generator (SUPERSEDED for the native path).
 
-Pipeline position:   intake JSON + reference.db  ->  project.ribd  ->  (CBECC batch run)
+>>> Phase 0 finding: a real CBECC-Res .ribd25 is BEMProc INDENTED TEXT, not XML
+    (see PHASE0_FINDINGS.md). CBECC-Res does not open the XML this script emits.
+    The reliable native path is template-and-patch via ribd_patch.py.
+    This file is kept only as a readable demo of the intake->DB->file data flow
+    (ref resolution, code-cycle consistency, the --strict QA gate). <<<
+
+Pipeline position (demo):   intake JSON + reference.db  ->  project.xml-ish
 
 Usage:
     python generate_ribd.py --intake sample_intake.json --db reference.db --out Doe.ribd
