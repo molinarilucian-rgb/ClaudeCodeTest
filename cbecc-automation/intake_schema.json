@@ -1,0 +1,147 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://smartsketch.local/cbecc/intake.schema.json",
+  "title": "CBECC-Res Project Intake",
+  "description": "Standardized intake captured by the project lead. *_ref fields point at reference.db rows (enter-once-reuse library). Inline values may override library data for one-offs.",
+  "type": "object",
+  "required": ["code_cycle", "project", "windows", "walls", "roofs", "hvac", "water_heating"],
+  "additionalProperties": false,
+  "properties": {
+    "code_cycle": { "type": "string", "enum": ["2019", "2022", "2025"] },
+    "project": {
+      "type": "object",
+      "required": ["name", "climate_zone", "building_type", "conditioned_floor_area_ft2"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "address": { "type": "string" },
+        "city": { "type": "string" },
+        "zip": { "type": "string" },
+        "climate_zone": { "type": "integer", "minimum": 1, "maximum": 16 },
+        "building_type": { "type": "string", "enum": ["single_family", "adu", "low_rise_multifamily"] },
+        "stories": { "type": "integer", "minimum": 1 },
+        "conditioned_floor_area_ft2": { "type": "number", "exclusiveMinimum": 0 },
+        "num_dwelling_units": { "type": "integer", "minimum": 1 },
+        "front_orientation_deg": { "type": "number", "minimum": 0, "maximum": 360 }
+      }
+    },
+    "windows": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["tag", "orientation_deg", "area_ft2"],
+        "additionalProperties": false,
+        "properties": {
+          "tag": { "type": "string" },
+          "product_ref": { "type": "integer", "description": "FK -> window_products.id" },
+          "orientation_deg": { "type": "number", "minimum": 0, "maximum": 360 },
+          "area_ft2": { "type": "number", "exclusiveMinimum": 0 },
+          "count": { "type": "integer", "minimum": 1, "default": 1 },
+          "overhang_ft": { "type": "number", "minimum": 0 },
+          "u_factor_override": { "type": "number" },
+          "shgc_override": { "type": "number" }
+        }
+      }
+    },
+    "doors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["tag", "area_ft2"],
+        "additionalProperties": false,
+        "properties": {
+          "tag": { "type": "string" },
+          "product_ref": { "type": "integer", "description": "FK -> door_products.id" },
+          "orientation_deg": { "type": "number", "minimum": 0, "maximum": 360 },
+          "area_ft2": { "type": "number", "exclusiveMinimum": 0 },
+          "count": { "type": "integer", "minimum": 1, "default": 1 }
+        }
+      }
+    },
+    "walls": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["tag", "assembly_ref", "orientation_deg", "gross_area_ft2"],
+        "additionalProperties": false,
+        "properties": {
+          "tag": { "type": "string" },
+          "assembly_ref": { "type": "integer", "description": "FK -> wall_assemblies.id" },
+          "orientation_deg": { "type": "number", "minimum": 0, "maximum": 360 },
+          "gross_area_ft2": { "type": "number", "exclusiveMinimum": 0 }
+        }
+      }
+    },
+    "roofs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["tag", "assembly_ref", "area_ft2"],
+        "additionalProperties": false,
+        "properties": {
+          "tag": { "type": "string" },
+          "assembly_ref": { "type": "integer", "description": "FK -> roof_assemblies.id" },
+          "area_ft2": { "type": "number", "exclusiveMinimum": 0 }
+        }
+      }
+    },
+    "floors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["tag", "assembly_ref", "area_ft2"],
+        "additionalProperties": false,
+        "properties": {
+          "tag": { "type": "string" },
+          "assembly_ref": { "type": "integer", "description": "FK -> floor_assemblies.id" },
+          "area_ft2": { "type": "number", "exclusiveMinimum": 0 }
+        }
+      }
+    },
+    "hvac": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["tag", "system_kind"],
+        "additionalProperties": false,
+        "properties": {
+          "tag": { "type": "string" },
+          "system_kind": { "type": "string", "enum": ["furnace", "split_ac", "ducted_heat_pump", "packaged_heat_pump", "ductless_minisplit"] },
+          "equipment_ref": { "type": "integer", "description": "FK -> hvac_equipment.id OR minisplit_systems.id depending on system_kind" },
+          "duct_location": { "type": "string", "enum": ["conditioned", "attic", "crawlspace", "none"] },
+          "duct_r": { "type": "number", "minimum": 0 },
+          "duct_leakage_pct": { "type": "number", "minimum": 0 }
+        }
+      }
+    },
+    "water_heating": {
+      "type": "object",
+      "required": ["product_ref"],
+      "additionalProperties": false,
+      "properties": {
+        "product_ref": { "type": "integer", "description": "FK -> water_heaters.id" },
+        "distribution": { "type": "string", "enum": ["standard", "compact", "point_of_use"] },
+        "recirculation": { "type": "boolean" }
+      }
+    },
+    "solar": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "module_ref": { "type": "integer", "description": "FK -> pv_modules.id" },
+        "dc_size_kw": { "type": "number", "minimum": 0 },
+        "azimuth_deg": { "type": "number", "minimum": 0, "maximum": 360 },
+        "tilt_deg": { "type": "number", "minimum": 0, "maximum": 90 },
+        "array_type": { "type": "string", "enum": ["roof_mounted", "ground_mounted"] }
+      }
+    },
+    "battery": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "product_ref": { "type": "integer", "description": "FK -> battery_systems.id" },
+        "usable_kwh": { "type": "number", "minimum": 0 }
+      }
+    }
+  }
+}

@@ -1,0 +1,9 @@
+# generated artifacts
+reference.db
+*.ribd
+*.ribd25
+*.ribd22
+project.ribd
+
+# real client files dropped for tag mapping (may contain project data)
+reference_files/*.ribd*

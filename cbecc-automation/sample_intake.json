@@ -1,0 +1,45 @@
+{
+  "$comment": "Sample intake. *_ref fields are foreign keys into reference.db (the rows init_db.py seeds). Replace with real project data.",
+  "code_cycle": "2025",
+  "project": {
+    "name": "Doe Residence",
+    "address": "1234 Example Ave",
+    "city": "Bakersfield",
+    "zip": "93301",
+    "climate_zone": 13,
+    "building_type": "single_family",
+    "stories": 1,
+    "conditioned_floor_area_ft2": 2150,
+    "num_dwelling_units": 1,
+    "front_orientation_deg": 180
+  },
+  "windows": [
+    { "tag": "W1", "product_ref": 1, "orientation_deg": 180, "area_ft2": 120, "count": 4, "overhang_ft": 2.0 },
+    { "tag": "W2", "product_ref": 1, "orientation_deg": 90,  "area_ft2": 30,  "count": 2, "overhang_ft": 1.0 }
+  ],
+  "doors": [
+    { "tag": "D1", "product_ref": 1, "orientation_deg": 180, "area_ft2": 20, "count": 1 }
+  ],
+  "walls": [
+    { "tag": "EW1", "assembly_ref": 1, "orientation_deg": 180, "gross_area_ft2": 1200 }
+  ],
+  "roofs": [
+    { "tag": "R1", "assembly_ref": 1, "area_ft2": 2200 }
+  ],
+  "floors": [
+    { "tag": "F1", "assembly_ref": 1, "area_ft2": 2150 }
+  ],
+  "hvac": [
+    {
+      "tag": "HVAC1",
+      "system_kind": "ducted_heat_pump",
+      "equipment_ref": 1,
+      "duct_location": "conditioned",
+      "duct_r": 8,
+      "duct_leakage_pct": 5
+    }
+  ],
+  "water_heating": { "product_ref": 1, "distribution": "standard", "recirculation": false },
+  "solar":  { "module_ref": 1, "dc_size_kw": 4.5, "azimuth_deg": 180, "tilt_deg": 22, "array_type": "roof_mounted" },
+  "battery": { "product_ref": 1, "usable_kwh": 13.5 }
+}

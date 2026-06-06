@@ -1,0 +1,10 @@
+Drop a real CBECC-Res project file here that ALREADY passes CBECC
+(e.g. a completed prior project: SomeProject.ribd / .ribd25).
+
+generate_ribd.py emits placeholder SDD XML tag names. Use the real file in
+this folder as ground truth to fix the names marked >>>CONFIRM<<< in
+generate_ribd.py (they're isolated in the TAGS dict + build_* functions).
+
+How to find one:
+  - CBECC-Res writes the .ribd next to your project when you save in the GUI.
+  - Or export/copy a completed report's input file from a past job.
