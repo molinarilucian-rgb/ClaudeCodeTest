@@ -44,10 +44,20 @@ const emptyState = (tf) => ({
 
 /**
  * Compute the opening range for ONE timeframe from a set of minute bars.
- * `orComplete` is true once trading is observed at/after the window end
- * (a bar with offset >= timeframe), proving the window fully elapsed.
+ *
+ * The window covers offsets [0, timeframeMin) — its final minute is offset
+ * timeframeMin-1. It is COMPLETE once either:
+ *   - we've observed that final minute (a bar at offset >= timeframeMin-1), or
+ *   - the window-end time has passed (optional `asOf` at/after the window end).
+ * This avoids the off-by-one where a lock firing exactly at the window end
+ * (e.g. 09:35 for the 5-min OR, with bars at offsets 0–4) was wrongly flagged
+ * incomplete because no post-window bar existed yet.
+ *
+ * @param {Array} bars minute bars { t, o, h, l, c, v }
+ * @param {number} timeframeMin OR window length in minutes
+ * @param {string|Date|dayjs} [asOf] current time, enables time-based completion
  */
-export function computeOpeningRange(bars, timeframeMin) {
+export function computeOpeningRange(bars, timeframeMin, asOf = null) {
   const state = emptyState(timeframeMin);
   if (!bars || bars.length === 0) return state;
 
@@ -63,7 +73,10 @@ export function computeOpeningRange(bars, timeframeMin) {
   state.orHigh = Math.max(...inWindow.map((b) => b.h));
   state.orLow = Math.min(...inWindow.map((b) => b.l));
   state.barCount = inWindow.length;
-  state.orComplete = maxOffset >= timeframeMin;
+
+  const finalMinuteSeen = maxOffset >= timeframeMin - 1;       // observed last window minute
+  const timeElapsed = asOf != null && minutesFromOpen(asOf) >= timeframeMin; // window end passed
+  state.orComplete = finalMinuteSeen || timeElapsed;
   state.orCompleteTime = state.orComplete ? windowEndIso(inWindow[0], timeframeMin) : null;
   return state;
 }
@@ -72,9 +85,9 @@ export function computeOpeningRange(bars, timeframeMin) {
  * Compute opening ranges for all configured timeframes.
  * @returns {Object<number, ReturnType<typeof computeOpeningRange>>} keyed by timeframe
  */
-export function computeAllOpeningRanges(bars, timeframes = config.strategy.orTimeframes) {
+export function computeAllOpeningRanges(bars, timeframes = config.strategy.orTimeframes, asOf = null) {
   const out = {};
-  for (const tf of timeframes) out[tf] = computeOpeningRange(bars, tf);
+  for (const tf of timeframes) out[tf] = computeOpeningRange(bars, tf, asOf);
   return out;
 }
 

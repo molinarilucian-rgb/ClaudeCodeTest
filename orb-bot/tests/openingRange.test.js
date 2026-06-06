@@ -76,13 +76,44 @@ test('pre-market bars are ignored', () => {
   assert.equal(or.orLow, 97);   // pre-market 1 excluded
 });
 
-test('incomplete window: no bar past the window end → not complete', () => {
-  const partial = [bar(0, 100, 99), bar(1, 101, 98), bar(2, 102, 100)];
+test('incomplete window: only partial minutes seen → not complete', () => {
+  const partial = [bar(0, 100, 99), bar(1, 101, 98), bar(2, 102, 100)]; // offsets 0-2 (3 of 5 min)
   const or = computeOpeningRange(partial, 5);
   assert.equal(or.orHigh, 102);
   assert.equal(or.orLow, 98);
-  assert.equal(or.orComplete, false);     // window 09:35 not yet observed
+  assert.equal(or.orComplete, false);     // final window minute (offset 4) not yet observed
   assert.equal(or.orCompleteTime, null);
+});
+
+test('OR is COMPLETE once the final window minute is present (5 one-min bars = 5-min OR)', () => {
+  // The exact bug: bars at offsets 0–4 (maxOffset 4), no post-window bar, no asOf.
+  const bars = [bar(0, 100, 99), bar(1, 101, 98), bar(2, 102, 99), bar(3, 100, 97), bar(4, 103, 99)];
+  const or = computeOpeningRange(bars, 5);
+  assert.equal(or.barCount, 5);
+  assert.equal(or.orHigh, 103);
+  assert.equal(or.orLow, 97);
+  assert.equal(or.orComplete, true); // was wrongly false before the off-by-one fix
+  assert.equal(or.orCompleteTime, '2026-06-03T13:35:00.000Z');
+});
+
+test('15m and 30m complete with exactly 15 / 30 one-minute bars', () => {
+  const mk = (n) => Array.from({ length: n }, (_, i) => bar(i, 100 + (i % 3), 99));
+  assert.equal(computeOpeningRange(mk(15), 15).orComplete, true); // maxOffset 14 = tf-1
+  assert.equal(computeOpeningRange(mk(30), 30).orComplete, true); // maxOffset 29 = tf-1
+});
+
+test('asOf completes the window by time even if the final-minute bar is missing', () => {
+  const bars = [bar(0, 100, 99), bar(1, 101, 98), bar(2, 102, 99), bar(3, 100, 97)]; // offset-4 bar missing
+  // 09:36 ET (offset 6) is past the 5-min window end.
+  const or = computeOpeningRange(bars, 5, '2026-06-03T13:36:00Z');
+  assert.equal(or.orComplete, true);
+  assert.equal(or.barCount, 4);
+});
+
+test('asOf before the window end keeps it incomplete', () => {
+  const bars = [bar(0, 100, 99), bar(1, 101, 98), bar(2, 102, 100)]; // offsets 0-2
+  const or = computeOpeningRange(bars, 5, '2026-06-03T13:33:00Z'); // 09:33, offset 3 < 5
+  assert.equal(or.orComplete, false);
 });
 
 test('missing minutes (gaps) still produce a valid range', () => {

@@ -131,14 +131,18 @@ async function lockOpeningRange(tf, headerSuffix = '') {
   const lines = [];
   for (const row of wl) {
     const bars = await getMinuteBars(row.symbol, startIso, nowIso);
-    const or = computeOpeningRange(bars, tf);
+    const or = computeOpeningRange(bars, tf, nowIso); // asOf=now → completes at the window boundary
+    // Audit line: final OR high/low + the exact bar count used to build the range.
+    const audit = or.orHigh != null
+      ? `high $${or.orHigh.toFixed(2)} | low $${or.orLow.toFixed(2)} | range $${(or.orHigh - or.orLow).toFixed(2)} | ${or.barCount} bars`
+      : `no in-window bars (${bars.length} fetched)`;
     if (or.orComplete && or.orHigh != null) {
       saveOpeningRange(date, row.symbol, tf, or.orHigh, or.orLow, or.orCompleteTime);
       lines.push(`${row.symbol}: High $${or.orHigh.toFixed(2)} | Low $${or.orLow.toFixed(2)} | Range: $${(or.orHigh - or.orLow).toFixed(2)}`);
-      logger.info(`OR ${row.symbol} ${tf}m locked: $${or.orLow.toFixed(2)}–$${or.orHigh.toFixed(2)}`);
+      logger.info(`OR LOCK ${row.symbol} ${tf}m → ${audit}`);
     } else {
-      lines.push(`${row.symbol}: OR ${tf}m incomplete (${bars.length} bars)`);
-      logger.warn(`OR ${row.symbol} ${tf}m incomplete (${bars.length} bars)`);
+      lines.push(`${row.symbol}: OR ${tf}m incomplete (${or.barCount} in-window bars)`);
+      logger.warn(`OR LOCK ${row.symbol} ${tf}m INCOMPLETE → ${audit}`);
     }
   }
   await notify(`🔒 ${tf}-MIN OR LOCKED${headerSuffix}\n${lines.join('\n')}`);
@@ -160,7 +164,7 @@ async function jobMonitorBreakouts() {
   for (const row of watchlist) {
     const bars = await getMinuteBars(row.symbol, startIso, nowIso);
     if (!bars.length) continue;
-    const ranges = computeAllOpeningRanges(bars);
+    const ranges = computeAllOpeningRanges(bars, config.strategy.orTimeframes, nowIso);
 
     for (const tf of config.strategy.orTimeframes) {
       const signal = detectBreakout({
