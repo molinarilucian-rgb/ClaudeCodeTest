@@ -136,17 +136,29 @@ localized edit. Specifically still needed from a real file:
 - Geometry model CBECC-Res expects (we emit a simplified **single thermal zone**;
   confirm whether your project types need per-zone geometry)
 
-### Run it (once Python is installed — see below)
+### Run it
+
+Python 3.12 is installed (via `winget Python.Python.3.12`). The scripts use
+**only the standard library** — no `pip install` needed. Full pipeline:
 
 ```powershell
-python init_db.py                 # creates reference.db with placeholder data
-python generate_ribd.py --intake sample_intake.json --out Doe.ribd
-python generate_ribd.py --strict  # will fail until rows are marked verified=1
+python init_db.py                                   # create + seed reference.db
+python qa_review.py list                            # see unverified library rows
+python qa_review.py verify-all --by "L. Molinari"   # human sign-off (or verify one at a time)
+python generate_ribd.py --intake sample_intake.json --out Doe.ribd --strict
+
+# Spreadsheet path (Phase 4): fill the CSV pack, convert, generate
+python intake_from_csv.py templates ./my_project_csv     # blank templates
+python intake_from_csv.py build ./intake_csv_example --out intake.json
+python generate_ribd.py --intake intake.json --out Doe.ribd --strict
+
+# Phase 0: after installing CBECC, find it and probe for batch mode
+python verify_cbecc.py --probe
 ```
 
-> **Python is not yet installed on this machine.** The Store-alias `python.exe`
-> is a stub. Install Python 3.11+ from python.org (check "Add to PATH"). The
-> scripts use **only the standard library** — no `pip install` needed.
+**Verified end-to-end on this machine:** DB build → QA gate (blocks unverified,
+unlocks after sign-off) → strict generation → CSV→intake→`.ribd`. The JSON path
+and the CSV path produce a **byte-identical** `.ribd`.
 
 ---
 
@@ -208,11 +220,15 @@ Start Phase 4 (deterministic parsing of structured inputs) and treat Phase 5 as 
 
 ## Files
 
-| File | Purpose |
-|---|---|
-| `schema.sql` | Reference DB schema (SQLite) |
-| `init_db.py` | Create + seed `reference.db` |
-| `intake_schema.json` | Intake form contract (JSON Schema) |
-| `sample_intake.json` | Worked example intake |
-| `generate_ribd.py` | Intake + DB → `.ribd` (starter, tag names flagged) |
-| `reference_files/` | **Drop a real CBECC-passing `.ribd` here** to finish the mapping |
+| File | Purpose | Phase |
+|---|---|---|
+| `schema.sql` | Reference DB schema (SQLite), code-cycle tagged, QA audit columns | 1 |
+| `init_db.py` | Create + seed `reference.db` | 1 |
+| `intake_schema.json` | Intake form contract (JSON Schema) | 2 |
+| `sample_intake.json` | Worked example intake (JSON) | 2 |
+| `generate_ribd.py` | Intake + DB → `.ribd` (starter, tag names flagged) | 2 |
+| `qa_review.py` | Human-QA gate: list / verify / unverify library rows | 3 |
+| `intake_from_csv.py` | Spreadsheet (CSV pack) → `intake.json`; `templates` + `build` | 4 |
+| `intake_csv_example/` | Worked CSV pack (matches `sample_intake.json`) | 4 |
+| `verify_cbecc.py` | Locate CBECC install + probe batch/CLI capability | 0 |
+| `reference_files/` | **Drop a real CBECC-passing `.ribd` here** to finish the mapping | — |

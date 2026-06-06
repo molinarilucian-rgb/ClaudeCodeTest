@@ -4,6 +4,9 @@ reference.db
 *.ribd25
 *.ribd22
 project.ribd
+intake_from_csv.json
+/intake.json
+_tmpl_test/
 
 # real client files dropped for tag mapping (may contain project data)
 reference_files/*.ribd*

@@ -174,6 +174,10 @@ def resolve(con, intake, strict):
 def sub(parent, tag, text=None, **attrs):
     el = ET.SubElement(parent, tag, {k: str(v) for k, v in attrs.items()})
     if text is not None:
+        # normalize integral floats (480.0 -> 480) so output is identical
+        # whether the intake came from JSON ints or CSV-parsed floats
+        if isinstance(text, float) and text.is_integer():
+            text = int(text)
         el.text = str(text)
     return el
 
