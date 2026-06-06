@@ -4,10 +4,10 @@
  *   node scripts/dump-watchlist.js            # ALL rows grouped by date, oldest first
  *   node scripts/dump-watchlist.js 2026-06-04 # detailed rows for one ET date
  *
- * The no-argument form shows how many days of history the DB actually contains
- * (useful for spotting that the Railway container disk is ephemeral and resets
- * on redeploy). Resolves the DB at $ORB_DB_PATH, else <project>/data/orb.db —
- * which on Railway (service root = orb-bot) is /app/data/orb.db. Read-only.
+ * The no-argument form shows how many days of history the DB actually contains.
+ * Resolves the DB the same way the app does: $ORB_DB_PATH, else a mounted
+ * Railway volume ($RAILWAY_VOLUME_MOUNT_PATH), else <project>/data/orb.db.
+ * Read-only.
  */
 import { DatabaseSync } from 'node:sqlite';
 import { existsSync } from 'node:fs';
@@ -15,7 +15,8 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
-const DB_PATH = process.env.ORB_DB_PATH || join(scriptDir, '..', 'data', 'orb.db');
+const defaultDir = process.env.RAILWAY_VOLUME_MOUNT_PATH || join(scriptDir, '..', 'data');
+const DB_PATH = process.env.ORB_DB_PATH || join(defaultDir, 'orb.db');
 const dateArg = process.argv[2];
 
 console.log(`\nDB: ${DB_PATH}\n`);

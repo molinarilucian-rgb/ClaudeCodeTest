@@ -11,10 +11,14 @@ import logger from '../utils/logger.js';
  * catalyst for later analysis.
  */
 
+// DB location priority:
+//   1. ORB_DB_PATH (explicit override, e.g. tests)
+//   2. RAILWAY_VOLUME_MOUNT_PATH (a mounted Railway volume → survives redeploys)
+//   3. <project>/data/orb.db (local dev)
 const __dir = dirname(fileURLToPath(import.meta.url));
-const dataDir = join(__dir, '..', '..', 'data');
-mkdirSync(dataDir, { recursive: true });
-const DB_PATH = process.env.ORB_DB_PATH || join(dataDir, 'orb.db');
+const defaultDir = process.env.RAILWAY_VOLUME_MOUNT_PATH || join(__dir, '..', '..', 'data');
+const DB_PATH = process.env.ORB_DB_PATH || join(defaultDir, 'orb.db');
+mkdirSync(dirname(DB_PATH), { recursive: true });
 
 export const db = new DatabaseSync(DB_PATH);
 db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');

@@ -233,9 +233,16 @@ The bot runs as a long-lived **worker** (no web port needed). Config files:
 **Notes**
 - A persistent worker bills continuously on Railway (it sleeps between jobs but
   stays resident). That's expected for a cron-style scheduler.
-- The SQLite DB lives on the container's **ephemeral** disk and resets on every
-  redeploy. Fine for now (state rebuilds each morning); attach a Railway **Volume**
-  at `orb-bot/data` later if you want trade history to persist across deploys.
+- **Persisting history across redeploys (Railway Volume).** By default the
+  SQLite DB is on the container's ephemeral disk and resets on every redeploy.
+  To keep watchlist/signal/trade history, add a Railway **Volume**:
+  1. Railway → your service → **Settings → Volumes → + New Volume** (or
+     `railway volume add` via CLI).
+  2. Set the **mount path** to **`/app/data`** (matches the app's data dir).
+  3. Redeploy. Railway sets `RAILWAY_VOLUME_MOUNT_PATH`, which the bot uses for
+     the DB automatically (`RAILWAY_VOLUME_MOUNT_PATH/orb.db`) — no code change
+     needed. The DB now survives redeploys; verify with
+     `node scripts/dump-watchlist.js` (it should accumulate days over time).
 - Credentials live only in Railway's dashboard, never in git.
 
 ## ⚠️ Data Limitations (read before trusting scan output)
