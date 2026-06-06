@@ -139,7 +139,14 @@ localized edit. Specifically still needed from a real file:
 ### Run it
 
 Python 3.12 is installed (via `winget Python.Python.3.12`). The scripts use
-**only the standard library** — no `pip install` needed. Full pipeline:
+**only the standard library** — no `pip install` needed.
+
+> **Tip:** `python` on PATH may still be the Windows Store stub. Use the
+> `run.ps1` wrapper — it auto-finds the real Python and forwards args:
+> `.\run.ps1 init_db.py --force`, `.\run.ps1 generate_ribd.py --strict`, etc.
+> (If scripts are blocked: `powershell -ExecutionPolicy Bypass -File .\run.ps1 ...`)
+
+Full pipeline (shown with direct `python`; prefix any line with `.\run.ps1` instead):
 
 ```powershell
 python init_db.py                                   # create + seed reference.db
@@ -231,4 +238,5 @@ Start Phase 4 (deterministic parsing of structured inputs) and treat Phase 5 as 
 | `intake_from_csv.py` | Spreadsheet (CSV pack) → `intake.json`; `templates` + `build` | 4 |
 | `intake_csv_example/` | Worked CSV pack (matches `sample_intake.json`) | 4 |
 | `verify_cbecc.py` | Locate CBECC install + probe batch/CLI capability | 0 |
+| `run.ps1` | Wrapper: auto-find real Python, forward args to any script | — |
 | `reference_files/` | **Drop a real CBECC-passing `.ribd` here** to finish the mapping | — |
