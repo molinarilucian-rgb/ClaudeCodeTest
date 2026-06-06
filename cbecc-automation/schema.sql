@@ -11,6 +11,9 @@
 -- under which standard," and to let you retire rows when a cycle sunsets.
 -- The genuinely code-cycle-DEPENDENT data lives in the *_requirements
 -- tables at the bottom (prescriptive limits), which you grow over time.
+--
+-- Every product/assembly row carries verified / verified_by / verified_on
+-- for a per-row human-QA audit trail (output carries permit liability).
 -- ======================================================================
 
 PRAGMA foreign_keys = ON;
@@ -64,6 +67,8 @@ CREATE TABLE IF NOT EXISTS door_products (
     nfrc_cpd      TEXT,
     code_cycle_id INTEGER NOT NULL REFERENCES code_cycles(id),
     verified      INTEGER NOT NULL DEFAULT 0,
+    verified_by   TEXT,
+    verified_on   TEXT,
     active        INTEGER NOT NULL DEFAULT 1,
     notes         TEXT
 );
@@ -80,6 +85,8 @@ CREATE TABLE IF NOT EXISTS wall_assemblies (
     cbecc_cons_name TEXT,                     -- name of a matching CBECC construction, if reused
     code_cycle_id   INTEGER NOT NULL REFERENCES code_cycles(id),
     verified        INTEGER NOT NULL DEFAULT 0,
+    verified_by     TEXT,
+    verified_on     TEXT,
     active          INTEGER NOT NULL DEFAULT 1,
     notes           TEXT
 );
@@ -96,6 +103,8 @@ CREATE TABLE IF NOT EXISTS roof_assemblies (
     assembly_u      REAL,
     code_cycle_id   INTEGER NOT NULL REFERENCES code_cycles(id),
     verified        INTEGER NOT NULL DEFAULT 0,
+    verified_by     TEXT,
+    verified_on     TEXT,
     active          INTEGER NOT NULL DEFAULT 1,
     notes           TEXT
 );
@@ -109,6 +118,8 @@ CREATE TABLE IF NOT EXISTS floor_assemblies (
     assembly_u    REAL,
     code_cycle_id INTEGER NOT NULL REFERENCES code_cycles(id),
     verified      INTEGER NOT NULL DEFAULT 0,
+    verified_by   TEXT,
+    verified_on   TEXT,
     active        INTEGER NOT NULL DEFAULT 1,
     notes         TEXT
 );
@@ -128,6 +139,8 @@ CREATE TABLE IF NOT EXISTS hvac_equipment (
     afue             REAL,                      -- gas furnaces
     code_cycle_id    INTEGER NOT NULL REFERENCES code_cycles(id),
     verified         INTEGER NOT NULL DEFAULT 0,
+    verified_by      TEXT,
+    verified_on      TEXT,
     active           INTEGER NOT NULL DEFAULT 1,
     notes            TEXT
 );
@@ -148,6 +161,8 @@ CREATE TABLE IF NOT EXISTS minisplit_systems (
     hspf2            REAL,
     code_cycle_id    INTEGER NOT NULL REFERENCES code_cycles(id),
     verified         INTEGER NOT NULL DEFAULT 0,
+    verified_by      TEXT,
+    verified_on      TEXT,
     active           INTEGER NOT NULL DEFAULT 1,
     notes            TEXT
 );
@@ -164,6 +179,8 @@ CREATE TABLE IF NOT EXISTS water_heaters (
     first_hour_rating REAL,
     code_cycle_id     INTEGER NOT NULL REFERENCES code_cycles(id),
     verified          INTEGER NOT NULL DEFAULT 0,
+    verified_by       TEXT,
+    verified_on       TEXT,
     active            INTEGER NOT NULL DEFAULT 1,
     notes             TEXT
 );
@@ -178,6 +195,8 @@ CREATE TABLE IF NOT EXISTS pv_modules (
     efficiency_pct REAL,
     code_cycle_id  INTEGER NOT NULL REFERENCES code_cycles(id),
     verified       INTEGER NOT NULL DEFAULT 0,
+    verified_by    TEXT,
+    verified_on    TEXT,
     active         INTEGER NOT NULL DEFAULT 1,
     notes          TEXT
 );
@@ -192,6 +211,8 @@ CREATE TABLE IF NOT EXISTS battery_systems (
     control_strategy     TEXT,                 -- basic | advanced_dr (JA12)
     code_cycle_id        INTEGER NOT NULL REFERENCES code_cycles(id),
     verified             INTEGER NOT NULL DEFAULT 0,
+    verified_by          TEXT,
+    verified_on          TEXT,
     active               INTEGER NOT NULL DEFAULT 1,
     notes                TEXT
 );
