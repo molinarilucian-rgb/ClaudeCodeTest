@@ -9,7 +9,7 @@ import { detectBreakout, ENTRY_CUTOFF_OFFSET } from './strategy/breakoutDetector
 import { sendDiscord, sendBreakoutAlert } from './notify/discord.js';
 import { getWatchlist, saveOpeningRange, saveSignal, getSignal } from './data/database.js';
 import { decideStartupAction } from './startupPolicy.js';
-import { formatMonitorStatus, formatMonitorPending } from './monitorStatus.js';
+import { formatMonitorStatus, formatMonitorPending, formatRejectionReasons, isShortBias } from './monitorStatus.js';
 import { executionEngine } from './execution/executionEngine.js';
 
 /**
@@ -35,6 +35,19 @@ const alertedSignals = new Set();
 // Throttle for the periodic monitor status log: key `symbol|tf` → last bar
 // timestamp logged, so we emit at most one line per new 1-min bar per symbol+tf.
 const monitorStatusSeen = new Map();
+
+// Throttle for rejection logs: key `symbol|tf` → last bar timestamp logged, so a
+// silent rejection is explained at most once per new 1-min bar (not every 30s tick).
+const rejectionSeen = new Map();
+
+// Log each reason a BREAK failed to become a signal, throttled to once per new
+// 1-min bar per symbol+timeframe so the 30s monitor cadence doesn't spam the log.
+function logRejectionOnce(symbol, tf, barTs, reasons) {
+  const key = `${symbol}|${tf}`;
+  if (rejectionSeen.get(key) === barTs) return;
+  rejectionSeen.set(key, barTs);
+  for (const r of reasons) logger.warn(`⛔ REJECTED ${symbol} ${tf}m — ${r}`);
+}
 
 // Runtime state. `standDownToday` is set when the bot boots after the OR window
 // (missed start) so it won't trade a partial session; reset at the 05:00 wake.
@@ -67,6 +80,7 @@ async function verifyConnection({ maxMs = 10 * 60 * 1000, intervalMs = 60 * 1000
 async function jobWakeUp() {
   alertedSignals.clear(); // reset daily de-dup
   monitorStatusSeen.clear(); // reset periodic-log throttle
+  rejectionSeen.clear(); // reset rejection-log throttle
   state.standDownToday = false; // new day — clear any prior late-boot stand-down
   if (isHoliday()) {
     logger.info('Market holiday today — standing down.');
@@ -156,6 +170,33 @@ async function lockOpeningRange(tf, headerSuffix = '') {
   await notify(`🔒 ${tf}-MIN OR LOCKED${headerSuffix}\n${lines.join('\n')}`);
 }
 
+// Consolidated OR-levels audit — print every watchlist stock's high/low/range for
+// ALL timeframes side by side, computed fresh from the same bar set. This makes
+// matching levels across timeframes directly verifiable: a 5m and 15m low that
+// read identically because the session-low-so-far printed in the first 5 minutes
+// is EXPECTED (the 15m window is a superset of the 5m window, so its low can never
+// be higher) — not the 15m level "inheriting" the 5m one. A 15m low ABOVE the 5m
+// low would be the real red flag. Runs once after the final (30m) lock.
+async function logOrLevelsAudit() {
+  const date = etDateStr();
+  const wl = getWatchlist(date).filter((r) => r.selected);
+  if (!wl.length) { logger.info('OR LEVELS AUDIT — watchlist empty, nothing to audit.'); return; }
+  const startIso = etToIso(date, '09:30');
+  const nowIso = new Date().toISOString();
+  const tfs = config.strategy.orTimeframes;
+  logger.info(`OR LEVELS AUDIT (${date}) — each stock, every timeframe [${tfs.join('/')}m]:`);
+  for (const row of wl) {
+    const bars = await getMinuteBars(row.symbol, startIso, nowIso);
+    const ranges = computeAllOpeningRanges(bars, tfs, nowIso);
+    const parts = tfs.map((tf) => {
+      const r = ranges[tf];
+      if (r.orHigh == null) return `${tf}m: — (no in-window bars)`;
+      return `${tf}m H $${r.orHigh.toFixed(2)} / L $${r.orLow.toFixed(2)} / R $${(r.orHigh - r.orLow).toFixed(2)} (${r.barCount} bars${r.orComplete ? '' : ', INCOMPLETE'})`;
+    });
+    logger.info(`   ${row.symbol.padEnd(6)} | ${parts.join('  ||  ')}`);
+  }
+}
+
 // Every 30s in the entry window — detect breakouts, fire Discord alerts.
 async function jobMonitorBreakouts() {
   if (state.standDownToday) return; // booted too late — no partial session
@@ -200,7 +241,20 @@ async function jobMonitorBreakouts() {
         }
       }
 
-      if (!signal) continue;
+      if (!signal) {
+        // No candle has CLOSED beyond the OR yet. If the monitor shows BREAK, the
+        // price is only poking through intrabar (a wick) — explain why nothing fired.
+        if (orState.orComplete && orState.orHigh != null) {
+          const short = isShortBias(row.gap_pct);
+          const level = short ? orState.orLow : orState.orHigh;
+          const broken = short ? price <= level : price >= level;
+          if (broken) {
+            logRejectionOnce(row.symbol, tf, lastBar.t,
+              ['no candle has CLOSED beyond the OR yet (intrabar wick only, not a close-based breakout)']);
+          }
+        }
+        continue;
+      }
       if (signal.confirmation === 'pending') continue; // breakout seen — wait for the next candle
 
       // De-dup across both memory and DB so a mid-session restart can't re-handle.
@@ -216,8 +270,15 @@ async function jobMonitorBreakouts() {
         continue;
       }
 
-      // Confirmed structurally but other filters not met → not a valid signal.
-      if (!signal.triggered) continue;
+      // Confirmed structurally but a confirmation filter failed → not a valid
+      // signal. Log exactly which check(s) rejected it so the decision is auditable
+      // instead of silently dropped.
+      if (!signal.triggered) {
+        const reasons = formatRejectionReasons(signal, { volumeMult: config.strategy.breakoutVolumeMult });
+        logRejectionOnce(row.symbol, tf, lastBar.t,
+          reasons.length ? reasons : ['one or more confirmation filters not met']);
+        continue;
+      }
 
       alertedSignals.add(key);
       saveSignal(date, signal, { catalyst: row.catalyst_type, status: 'confirmed' });
@@ -272,7 +333,7 @@ const JOBS = [
   { expr: '25 9 * * 1-5', name: '09:25 pre-open prep',         fn: jobPreOpen,                      tradingDayOnly: true },
   { expr: '35 9 * * 1-5', name: '09:35 lock 5-min OR',         fn: () => lockOpeningRange(5),       tradingDayOnly: true },
   { expr: '45 9 * * 1-5', name: '09:45 lock 15-min OR',        fn: () => lockOpeningRange(15),      tradingDayOnly: true },
-  { expr: '0 10 * * 1-5', name: '10:00 lock 30-min OR',        fn: () => lockOpeningRange(30, ' — all timeframes active, breakout detection live'), tradingDayOnly: true },
+  { expr: '0 10 * * 1-5', name: '10:00 lock 30-min OR',        fn: async () => { await lockOpeningRange(30, ' — all timeframes active, breakout detection live'); await logOrLevelsAudit(); }, tradingDayOnly: true },
   { expr: '0 11 * * 1-5', name: '11:00 entry window close',    fn: jobEntryClose,                   tradingDayOnly: true },
   { expr: '55 15 * * 1-5', name: '15:55 EOD force-close',      fn: jobEodClose,                     tradingDayOnly: true },
   // 6-field (with seconds): every 30s during the 9:xx and 10:xx ET hours
@@ -362,6 +423,7 @@ const RUNNERS = {
   or5: () => lockOpeningRange(5),
   or15: () => lockOpeningRange(15),
   or30: () => lockOpeningRange(30, ' — all timeframes active, breakout detection live'),
+  audit: logOrLevelsAudit,
   monitor: jobMonitorBreakouts,
   close: jobEntryClose,
   manage: jobManagePositions,

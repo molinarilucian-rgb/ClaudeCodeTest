@@ -37,4 +37,54 @@ export function formatMonitorPending({ symbol, timeframe, direction }) {
   return `${symbol} ${timeframe}m PENDING — closed ${side}, awaiting next-candle confirmation`;
 }
 
-export default { isShortBias, formatMonitorStatus, formatMonitorPending };
+/**
+ * Explain why a structurally-valid breakout did NOT become a signal. Inspects the
+ * signal's confirmation flags and returns one human-readable reason per failed
+ * check, so every otherwise-silent rejection in the monitor becomes auditable.
+ *
+ * 'pending' and 'failed' (false-breakout) states are handled separately by the
+ * caller and are intentionally not covered here.
+ *
+ * @param {object} signal a detectBreakout() result (needs confirmations/direction/…)
+ * @param {object} [thresholds] optional { volumeMult } for richer wording
+ * @returns {string[]} reasons (empty when the signal actually triggered)
+ */
+export function formatRejectionReasons(signal, thresholds = {}) {
+  if (!signal || signal.triggered) return [];
+  const c = signal.confirmations || {};
+  const isLong = signal.direction === 'long';
+  const gapTxt = signal.gapPct == null
+    ? 'n/a'
+    : `${signal.gapPct >= 0 ? '+' : ''}${signal.gapPct.toFixed(2)}%`;
+  const reasons = [];
+
+  if (c.noPosition === false) {
+    reasons.push('existing position already open');
+  }
+  if (c.gapAligned === false) {
+    const gapDir = (signal.gapPct ?? 0) >= 0 ? 'gap up' : 'gap down';
+    reasons.push(`gap direction mismatch (${gapDir} ${gapTxt}, ${signal.direction} breakout blocked)`);
+  }
+  if (c.vwapAligned === false) {
+    const vwapTxt = signal.vwap != null ? signal.vwap.toFixed(2) : 'n/a';
+    reasons.push(isLong
+      ? `price below VWAP on a long breakout (entry ${signal.entryPrice.toFixed(2)} ≤ VWAP ${vwapTxt})`
+      : `price above VWAP on a short breakout (entry ${signal.entryPrice.toFixed(2)} ≥ VWAP ${vwapTxt})`);
+  }
+  if (c.volumeSurge === false) {
+    const need = thresholds.volumeMult != null ? ` < ${thresholds.volumeMult}×` : '';
+    reasons.push(`volume surge insufficient (${signal.volumeRatio.toFixed(1)}×${need})`);
+  }
+  if (c.beforeCutoff === false) {
+    reasons.push('past the 11:00 ET entry cutoff');
+  }
+  if (c.priceBreak === false) {
+    reasons.push('no price break beyond the OR level');
+  }
+  if (c.candleClose === false) {
+    reasons.push('breakout candle did not close beyond the OR level');
+  }
+  return reasons;
+}
+
+export default { isShortBias, formatMonitorStatus, formatMonitorPending, formatRejectionReasons };
