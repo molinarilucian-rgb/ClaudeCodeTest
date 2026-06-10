@@ -11,6 +11,8 @@
     "or": "node src/strategy/openingRange.js",
     "backtest": "node src/backtest.js",
     "check": "node src/data/marketData.js",
+    "stats": "node scripts/stats.js",
+    "report": "node src/bot.js --run report",
     "test": "node --test tests/*.test.js",
     "test:phase1": "node src/test-phase1.js",
     "test:phase2": "node src/test-phase2.js",

@@ -11,6 +11,10 @@ import { getWatchlist, saveOpeningRange, saveSignal, getSignal } from './data/da
 import { decideStartupAction } from './startupPolicy.js';
 import { formatMonitorStatus, formatMonitorPending, formatRejectionReasons, isShortBias, describeBreakBlock } from './monitorStatus.js';
 import { executionEngine } from './execution/executionEngine.js';
+// Phase 4 — performance analytics & reporting (read-only; never touches orders).
+import { generateDailyReport } from './reporting/dailyReport.js';
+import { generateWeeklyReport } from './reporting/weeklyReport.js';
+import { sendDailyDiscord, sendWeeklyDiscord } from './reporting/discordReport.js';
 
 /**
  * ORB Bot — main entry / scheduler (Phase 6, morning timeline).
@@ -361,6 +365,31 @@ function jobHeartbeat() {
   logger.info(`heartbeat — ${nowEt().format('YYYY-MM-DD HH:mm')} ET | trading_day=${isTradingDay()}`);
 }
 
+// 16:30 ET — Phase 4 daily performance report. Persists analytics, writes the
+// three report files, and sends the Discord summary. READ ONLY: it never places,
+// modifies, or cancels orders. Self-contained try/catch so a reporting failure
+// can never crash the bot (the job runner wraps it too — belt and suspenders).
+async function jobDailyReport() {
+  try {
+    const { data, paths } = generateDailyReport();
+    if (paths) logger.info(`Daily report written → ${paths.dir} (summary.txt, data.json, trades.csv)`);
+    await sendDailyDiscord(data);
+  } catch (err) {
+    logger.error(`Daily report failed (non-fatal): ${err.stack || err.message}`);
+  }
+}
+
+// Fridays 17:00 ET — Phase 4 weekly summary (Discord). READ ONLY.
+async function jobWeeklyReport() {
+  try {
+    const weekly = generateWeeklyReport();
+    await sendWeeklyDiscord(weekly);
+    logger.info(`Weekly summary sent — week of ${weekly.weekLabel} | ${weekly.tradingDays} trading day(s) | ${weekly.totalSignals} signals | P&L ${weekly.overall.totalPnl}`);
+  } catch (err) {
+    logger.error(`Weekly report failed (non-fatal): ${err.stack || err.message}`);
+  }
+}
+
 // ---- Schedule (cron evaluated in ET; weekday 1-5) ----
 const JOBS = [
   // 5-field: min hour day month weekday
@@ -374,6 +403,9 @@ const JOBS = [
   { expr: '0 10 * * 1-5', name: '10:00 lock 30-min OR',        fn: async () => { await lockOpeningRange(30, ' — all timeframes active, breakout detection live'); await logOrLevelsAudit(); }, tradingDayOnly: true },
   { expr: '0 11 * * 1-5', name: '11:00 entry window close',    fn: jobEntryClose,                   tradingDayOnly: true },
   { expr: '55 15 * * 1-5', name: '15:55 EOD force-close',      fn: jobEodClose,                     tradingDayOnly: true },
+  // Phase 4 reporting (after EOD close, so all trades are settled).
+  { expr: '30 16 * * 1-5', name: '16:30 daily performance report', fn: jobDailyReport,              tradingDayOnly: true },
+  { expr: '0 17 * * 5',   name: '17:00 weekly summary (Friday)', fn: jobWeeklyReport,               tradingDayOnly: true },
   // 6-field (with seconds): every 30s during the 9:xx and 10:xx ET hours
   { expr: '*/30 * 9,10 * * 1-5', name: 'breakout monitor (30s)', fn: jobMonitorBreakouts,           tradingDayOnly: true, quiet: true },
   // Position management every 30s through the session (09:30–15:59 ET).
@@ -466,6 +498,8 @@ const RUNNERS = {
   close: jobEntryClose,
   manage: jobManagePositions,
   eod: jobEodClose,
+  report: jobDailyReport,
+  weekly: jobWeeklyReport,
 };
 
 async function main() {
