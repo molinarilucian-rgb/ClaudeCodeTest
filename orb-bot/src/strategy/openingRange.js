@@ -33,6 +33,12 @@ function windowEndIso(anyInWindowBar, timeframeMin) {
   return openEt.add(timeframeMin, 'minute').toDate().toISOString();
 }
 
+/** ET "HH:mm" of the minute sitting `offset` minutes after the 09:30 open. */
+function offsetToEtHhmm(anyInWindowBar, offset) {
+  const openEt = toEt(anyInWindowBar.t).hour(9).minute(30).second(0).millisecond(0);
+  return openEt.add(offset, 'minute').format('HH:mm');
+}
+
 const emptyState = (tf) => ({
   timeframe: tf,
   orHigh: null,
@@ -40,6 +46,7 @@ const emptyState = (tf) => ({
   orComplete: false,
   orCompleteTime: null,
   barCount: 0,
+  missingMinutes: [], // ET "HH:mm" of expected minutes with no bar (feed gaps)
 });
 
 /**
@@ -78,6 +85,17 @@ export function computeOpeningRange(bars, timeframeMin, asOf = null) {
   const timeElapsed = asOf != null && minutesFromOpen(asOf) >= timeframeMin; // window end passed
   state.orComplete = finalMinuteSeen || timeElapsed;
   state.orCompleteTime = state.orComplete ? windowEndIso(inWindow[0], timeframeMin) : null;
+
+  // Identify minutes inside the window that produced NO bar (Alpaca/IEX feed gaps
+  // or a minute with no trades). A minute counts as "missing" only once it should
+  // have closed — bounded by `asOf` when given, else by the last bar we've seen —
+  // so a still-forming window doesn't report its future minutes as missing.
+  const seen = new Set(inWindow.map((b) => minutesFromOpen(b.t)));
+  const elapsedCap = asOf != null ? minutesFromOpen(asOf) - 1 : maxOffset;
+  const cap = Math.min(timeframeMin - 1, elapsedCap);
+  for (let off = 0; off <= cap; off++) {
+    if (!seen.has(off)) state.missingMinutes.push(offsetToEtHhmm(inWindow[0], off));
+  }
   return state;
 }
 

@@ -87,4 +87,27 @@ export function formatRejectionReasons(signal, thresholds = {}) {
   return reasons;
 }
 
-export default { isShortBias, formatMonitorStatus, formatMonitorPending, formatRejectionReasons };
+/**
+ * Single-line blocking reason for a BREAK that hasn't become a signal yet. Covers
+ * every "stuck" state the monitor can sit in, so a lingering BREAK can always be
+ * explained in one log line:
+ *   - no signal object       → price is beyond the OR only intrabar (no close beyond)
+ *   - confirmation 'pending' → a candle closed beyond, awaiting next-candle confirmation
+ *   - signal not triggered   → a confirmation filter failed (gap/VWAP/volume/cutoff/…)
+ *
+ * @param {object|null} signal a detectBreakout() result, or null when nothing closed beyond
+ * @param {object} [thresholds] optional { volumeMult }, passed to formatRejectionReasons
+ * @returns {string} one human-readable reason (filter failures joined with "; ")
+ */
+export function describeBreakBlock(signal, thresholds = {}) {
+  if (!signal) {
+    return 'no candle has CLOSED beyond the OR yet (price is beyond the level intrabar only)';
+  }
+  if (signal.confirmation === 'pending') {
+    return 'breakout candle closed beyond the OR; awaiting next-candle confirmation (false-breakout filter pending)';
+  }
+  const reasons = formatRejectionReasons(signal, thresholds);
+  return reasons.length ? reasons.join('; ') : 'one or more confirmation filters not met';
+}
+
+export default { isShortBias, formatMonitorStatus, formatMonitorPending, formatRejectionReasons, describeBreakBlock };

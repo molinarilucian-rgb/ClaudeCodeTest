@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { formatMonitorStatus, formatMonitorPending, formatRejectionReasons } from '../src/monitorStatus.js';
+import { formatMonitorStatus, formatMonitorPending, formatRejectionReasons, describeBreakBlock } from '../src/monitorStatus.js';
 
 // Build a non-triggered signal whose confirmations all pass except `conf` overrides.
 const sig = (conf = {}, top = {}) => ({
@@ -84,5 +84,38 @@ test('rejection: past entry cutoff', () => {
   assert.deepEqual(
     formatRejectionReasons(sig({ beforeCutoff: false })),
     ['past the 11:00 ET entry cutoff']
+  );
+});
+
+test('describeBreakBlock: null signal → intrabar-only (no close beyond)', () => {
+  assert.equal(
+    describeBreakBlock(null),
+    'no candle has CLOSED beyond the OR yet (price is beyond the level intrabar only)'
+  );
+});
+
+test('describeBreakBlock: pending confirmation explains the false-breakout wait', () => {
+  assert.equal(
+    describeBreakBlock({ confirmation: 'pending', triggered: false }),
+    'breakout candle closed beyond the OR; awaiting next-candle confirmation (false-breakout filter pending)'
+  );
+});
+
+test('describeBreakBlock: not-triggered signal surfaces the failing filter(s)', () => {
+  assert.equal(
+    describeBreakBlock(sig({ volumeSurge: false }, { confirmation: 'confirmed' }), { volumeMult: 1.5 }),
+    'volume surge insufficient (0.8× < 1.5×)'
+  );
+  // multiple failures join with "; "
+  assert.equal(
+    describeBreakBlock(sig({ vwapAligned: false, volumeSurge: false }, { confirmation: 'confirmed' }), { volumeMult: 1.5 }),
+    'price below VWAP on a long breakout (entry 100.00 ≤ VWAP 101.00); volume surge insufficient (0.8× < 1.5×)'
+  );
+});
+
+test('describeBreakBlock: confirmed+triggered=false with no named filter → generic fallback', () => {
+  assert.equal(
+    describeBreakBlock({ confirmation: 'confirmed', triggered: false, direction: 'long', confirmations: {} }),
+    'one or more confirmation filters not met'
   );
 });

@@ -125,6 +125,35 @@ test('missing minutes (gaps) still produce a valid range', () => {
   assert.equal(or.orComplete, true); // offset-7 bar proves window elapsed
 });
 
+test('missingMinutes lists the exact gap minute (14 bars in a 15-min OR)', () => {
+  // Offsets 0–14 except offset 9 → 14 bars, one gap. asOf past the window end.
+  const bars = Array.from({ length: 15 }, (_, i) => bar(i, 100 + (i % 3), 99))
+    .filter((_, i) => i !== 9);
+  const or = computeOpeningRange(bars, 15, '2026-06-03T13:45:00Z'); // 09:45 ET
+  assert.equal(or.barCount, 14);
+  assert.equal(or.orComplete, true);
+  assert.deepEqual(or.missingMinutes, ['09:39']); // 09:30 + 9 min
+});
+
+test('missingMinutes reports multiple gaps in order', () => {
+  const bars = [bar(0, 100, 99), bar(2, 105, 95), bar(4, 101, 98)]; // offsets 1 and 3 missing
+  const or = computeOpeningRange(bars, 5, '2026-06-03T13:35:00Z');
+  assert.equal(or.barCount, 3);
+  assert.deepEqual(or.missingMinutes, ['09:31', '09:33']);
+});
+
+test('missingMinutes is empty for a complete, gap-free window', () => {
+  const bars = Array.from({ length: 5 }, (_, i) => bar(i, 100 + (i % 3), 99));
+  assert.deepEqual(computeOpeningRange(bars, 5).missingMinutes, []);
+});
+
+test('a still-forming window does not report its future minutes as missing', () => {
+  // Only offsets 0–2 seen, no asOf → cap is the last bar (offset 2), not the window end.
+  const or = computeOpeningRange([bar(0, 100, 99), bar(1, 101, 98), bar(2, 102, 100)], 5);
+  assert.equal(or.orComplete, false);
+  assert.deepEqual(or.missingMinutes, []); // offsets 3,4 haven't elapsed → not "missing"
+});
+
 test('empty input yields an empty, incomplete state', () => {
   const or = computeOpeningRange([], 5);
   assert.equal(or.orHigh, null);

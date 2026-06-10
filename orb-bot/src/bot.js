@@ -1,7 +1,7 @@
 import cron from 'node-cron';
 import config from '../config/config.js';
 import logger from './utils/logger.js';
-import { nowEt, etDateStr, etToIso, isTradingDay, isHoliday } from './utils/timeUtils.js';
+import { nowEt, etDateStr, etToIso, etTimeStr, isTradingDay, isHoliday } from './utils/timeUtils.js';
 import { getAccount, getMinuteBars } from './data/marketData.js';
 import { scanGaps } from './scanners/gapScanner.js';
 import { computeOpeningRange, computeAllOpeningRanges, minutesFromOpen } from './strategy/openingRange.js';
@@ -9,7 +9,7 @@ import { detectBreakout, ENTRY_CUTOFF_OFFSET } from './strategy/breakoutDetector
 import { sendDiscord, sendBreakoutAlert } from './notify/discord.js';
 import { getWatchlist, saveOpeningRange, saveSignal, getSignal } from './data/database.js';
 import { decideStartupAction } from './startupPolicy.js';
-import { formatMonitorStatus, formatMonitorPending, formatRejectionReasons, isShortBias } from './monitorStatus.js';
+import { formatMonitorStatus, formatMonitorPending, formatRejectionReasons, isShortBias, describeBreakBlock } from './monitorStatus.js';
 import { executionEngine } from './execution/executionEngine.js';
 
 /**
@@ -39,6 +39,12 @@ const monitorStatusSeen = new Map();
 // Throttle for rejection logs: key `symbol|tf` → last bar timestamp logged, so a
 // silent rejection is explained at most once per new 1-min bar (not every 30s tick).
 const rejectionSeen = new Map();
+
+// Sustained-BREAK tracking. `breakSeenSince` records when a symbol+tf first
+// entered (and stayed in) BREAK territory without resolving; `breakStaleLogged`
+// throttles the blocking-reason log to once per new 1-min bar once it goes stale.
+const breakSeenSince = new Map(); // key `symbol|tf` → ISO time BREAK first observed
+const breakStaleLogged = new Map(); // key `symbol|tf` → last bar ts a stale-reason was logged for
 
 // Log each reason a BREAK failed to become a signal, throttled to once per new
 // 1-min bar per symbol+timeframe so the 30s monitor cadence doesn't spam the log.
@@ -81,6 +87,8 @@ async function jobWakeUp() {
   alertedSignals.clear(); // reset daily de-dup
   monitorStatusSeen.clear(); // reset periodic-log throttle
   rejectionSeen.clear(); // reset rejection-log throttle
+  breakSeenSince.clear(); // reset sustained-BREAK tracking
+  breakStaleLogged.clear();
   state.standDownToday = false; // new day — clear any prior late-boot stand-down
   if (isHoliday()) {
     logger.info('Market holiday today — standing down.');
@@ -166,6 +174,11 @@ async function lockOpeningRange(tf, headerSuffix = '') {
       lines.push(`${row.symbol}: OR ${tf}m incomplete (${or.barCount} in-window bars)`);
       logger.warn(`OR LOCK ${row.symbol} ${tf}m INCOMPLETE → ${audit}`);
     }
+    // A tf-minute OR expects exactly `tf` one-minute bars. Fewer means a feed gap;
+    // surface the exact missing minute(s) so the locked range is auditable.
+    if (or.missingMinutes.length) {
+      logger.warn(`OR LOCK ${row.symbol} ${tf}m DATA GAP — ${or.barCount}/${tf} bars; missing minute(s): ${or.missingMinutes.join(', ')} ET (Alpaca/IEX feed gap or no trades that minute)`);
+    }
   }
   await notify(`🔒 ${tf}-MIN OR LOCKED${headerSuffix}\n${lines.join('\n')}`);
 }
@@ -237,6 +250,31 @@ async function jobMonitorBreakouts() {
               symbol: row.symbol, timeframe: tf, price,
               orHigh: orState.orHigh, orLow: orState.orLow, gapPct: row.gap_pct,
             }));
+          }
+        }
+      }
+
+      // Sustained-BREAK audit: a BREAK is the monitor's "price beyond the relevant
+      // OR level" state. If it neither fires a signal nor resolves to a FAILED
+      // BREAKOUT within breakStaleMinutes, log exactly what's blocking it so a
+      // lingering BREAK is never silently stuck. Runs for every signal state.
+      if (orState.orComplete && orState.orHigh != null) {
+        const short = isShortBias(row.gap_pct);
+        const level = short ? orState.orLow : orState.orHigh;
+        const inBreak = short ? price <= level : price >= level;
+        const resolved = !!signal && (signal.triggered || signal.failedBreakout);
+        const breakKey = `${row.symbol}|${tf}`;
+        if (!inBreak || resolved) {
+          breakSeenSince.delete(breakKey);
+          breakStaleLogged.delete(breakKey);
+        } else {
+          if (!breakSeenSince.has(breakKey)) breakSeenSince.set(breakKey, nowIso);
+          const since = breakSeenSince.get(breakKey);
+          const ageMin = (Date.parse(nowIso) - Date.parse(since)) / 60000;
+          if (ageMin >= config.strategy.breakStaleMinutes && breakStaleLogged.get(breakKey) !== lastBar.t) {
+            breakStaleLogged.set(breakKey, lastBar.t);
+            const reason = describeBreakBlock(signal, { volumeMult: config.strategy.breakoutVolumeMult });
+            logger.warn(`⏳ STALE BREAK ${row.symbol} ${tf}m — beyond OR ${short ? 'low' : 'high'} since ${etTimeStr(since)} ET (${ageMin.toFixed(0)}m, still no signal): ${reason}`);
           }
         }
       }

@@ -139,6 +139,10 @@ export const config = {
     requireConfirmation: true,
     // Periodic monitor audit log (price vs OR level, once/minute per symbol+tf).
     logMonitorStatus: true,
+    // A BREAK (price beyond the relevant OR level) that neither fires a signal nor
+    // resolves to a FAILED BREAKOUT within this many minutes gets its blocking
+    // reason logged explicitly, so a lingering BREAK is never silently stuck.
+    breakStaleMinutes: 3,
     orderFillTimeoutSec: 120, // cancel unfilled limit after 2 min
     killSwitchRiskMult: 1.5, // close if moves >1.5x planned risk against
     atrPeriod: 14,
