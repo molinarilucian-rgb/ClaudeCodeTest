@@ -16,8 +16,23 @@ function variationLabel(g) {
   return `${g.timeframe}m OR | 1:${g.rr} RR`;
 }
 
+/**
+ * One-line gap-reversal summary (stocks that gapped down but were trading above
+ * their 30m OR low by 10:00 ET). Returns null when no scan data exists so callers
+ * can omit the line entirely.
+ */
+function formatGapReversalLine(gr) {
+  if (!gr || gr.gapDownCount == null) return null;
+  if (gr.gapDownCount === 0) return 'GAP REVERSALS: — (no gap-down stocks today)';
+  const syms = gr.reversalSymbols && gr.reversalSymbols.length ? ` — ${gr.reversalSymbols.join(', ')}` : '';
+  return `GAP REVERSALS: ${gr.gapReversalCount}/${gr.gapDownCount} gap-down above 30m OR low by 10:00 ET ` +
+    `(${gr.untradedReversalCount} untraded)${syms}`;
+}
+
 /** Daily summary message text (PART 3 format). */
 export function formatDailyDiscord(d) {
+  const grLine = formatGapReversalLine(d.gapReversal);
+
   // No-signals branch — say so clearly rather than printing a wall of zeros.
   if (d.signalsCount === 0) {
     const wl = d.watchlist.length
@@ -27,6 +42,7 @@ export function formatDailyDiscord(d) {
       `📊 DAILY REPORT — ${d.date}`,
       `No signals fired today. Bot monitored ${d.watchlist.length} stocks.`,
       `Watchlist: ${wl}`,
+      ...(grLine ? [grLine] : []),
     ].join('\n');
   }
 
@@ -42,6 +58,7 @@ export function formatDailyDiscord(d) {
     `📊 DAILY REPORT — ${d.date}`,
     '',
     `WATCHLIST: ${wl}`,
+    ...(grLine ? [grLine] : []),
     '',
     `SIGNALS TODAY: ${d.signalsCount}`,
     `✅ Wins: ${d.outcomes.wins} | ❌ Losses: ${d.outcomes.losses} | ⏳ Pending: ${d.outcomes.pending}`,

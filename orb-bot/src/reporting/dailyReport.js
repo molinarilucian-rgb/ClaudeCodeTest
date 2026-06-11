@@ -8,7 +8,7 @@ import {
 import {
   getClosedTradeRecordsForDate, getSignalsForDate,
   upsertStrategyPerformance, upsertDailySummary, rebuildCumulativeStats,
-  countTradingDaysTracked,
+  countTradingDaysTracked, getDailyWatchlistStats,
 } from './performanceDb.js';
 import { writeReports } from './reportFiles.js';
 
@@ -111,6 +111,17 @@ export function generateDailyReport({ date = etDateStr(), write = true } = {}) {
   const pending = allTrades.filter((t) => t.status === 'pending' || t.status === 'open').length;
   const outcomes = { wins: overall.wins, losses: overall.losses, pending };
 
+  // Gap-reversal watchlist stats (persisted by the scan that runs just before
+  // this report). Normalized to camelCase + a symbols array; null if not scanned.
+  const grRow = getDailyWatchlistStats(date);
+  const gapReversal = grRow ? {
+    watchlistCount: grRow.watchlist_count,
+    gapDownCount: grRow.gap_down_count,
+    gapReversalCount: grRow.gap_reversal_count,
+    untradedReversalCount: grRow.untraded_reversal_count,
+    reversalSymbols: grRow.reversal_symbols ? grRow.reversal_symbols.split(',').filter(Boolean) : [],
+  } : null;
+
   // Cumulative (all-time) — recompute from every closed trade and persist.
   // rebuildCumulativeStats returns the flat record list AND per-key stats.
   const { records: cumRecords, byKey: cumByKey } = rebuildCumulativeStats();
@@ -130,6 +141,7 @@ export function generateDailyReport({ date = etDateStr(), write = true } = {}) {
     signals,
     signalsCount: confirmed.length,
     outcomes,
+    gapReversal,
     records,
     grid,
     overall,

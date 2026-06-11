@@ -140,6 +140,16 @@ test('Discord daily message has the required sections', () => {
   assert.match(msg, /Best variation so far: 5m OR \| 1:2 RR/);
 });
 
+test('Discord daily message includes the gap-reversal line when scanned', () => {
+  perfDb.upsertDailyWatchlistStats(DATE, {
+    watchlistCount: 6, gapDownCount: 3, gapReversalCount: 2,
+    untradedReversalCount: 1, reversalSymbols: ['PLTR', 'AMD'],
+  });
+  const { data } = daily.generateDailyReport({ date: DATE, write: false });
+  const msg = discord.formatDailyDiscord(data);
+  assert.match(msg, /GAP REVERSALS: 2\/3 gap-down above 30m OR low by 10:00 ET \(1 untraded\) — PLTR, AMD/);
+});
+
 test('Discord daily message: no-signals branch for an empty day', () => {
   const EMPTY = '2026-06-09';
   database.saveWatchlistEntry(EMPTY, { symbol: 'AMD', gapPct: -2.1, selected: true, catalyst: { catalyst_type: 'news', quality: 'medium' } });
