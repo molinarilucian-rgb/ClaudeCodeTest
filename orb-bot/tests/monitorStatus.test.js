@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { formatMonitorStatus, formatMonitorPending, formatRejectionReasons, describeBreakBlock } from '../src/monitorStatus.js';
+import { formatMonitorStatus, formatMonitorPending, formatPendingGapCheck, formatRejectionReasons, describeBreakBlock } from '../src/monitorStatus.js';
 
 // Build a non-triggered signal whose confirmations all pass except `conf` overrides.
 const sig = (conf = {}, top = {}) => ({
@@ -52,6 +52,31 @@ test('pending line names the correct side per direction', () => {
   );
 });
 
+test('pending gap-direction check: gap-down + long break is flagged as blocked', () => {
+  // PLTR-style: gapped down but a candle closed ABOVE the OR high (long break).
+  const r = formatPendingGapCheck({
+    symbol: 'PLTR', timeframe: 30, direction: 'long', gapPct: -3.24,
+    confirmations: { gapAligned: false },
+  });
+  assert.equal(r.aligned, false);
+  assert.equal(
+    r.text,
+    'PLTR 30m PENDING gap-direction check FAILED — gap down -3.24% vs long breakout (signal will be blocked: gap direction mismatch)'
+  );
+});
+
+test('pending gap-direction check: aligned short break on a gap-down passes', () => {
+  const r = formatPendingGapCheck({
+    symbol: 'PLTR', timeframe: 30, direction: 'short', gapPct: -3.24,
+    confirmations: { gapAligned: true },
+  });
+  assert.equal(r.aligned, true);
+  assert.equal(
+    r.text,
+    'PLTR 30m PENDING gap-direction check OK — gap down -3.24% aligned with short breakout'
+  );
+});
+
 test('rejection: a triggered signal yields no reasons', () => {
   assert.deepEqual(formatRejectionReasons({ triggered: true, confirmations: {} }), []);
   assert.deepEqual(formatRejectionReasons(null), []);
@@ -69,9 +94,12 @@ test('rejection: VWAP miss is phrased per direction', () => {
   assert.equal(rShort, 'price above VWAP on a short breakout (entry 100.00 ≥ VWAP 101.00)');
 });
 
-test('rejection: volume surge includes the threshold when supplied', () => {
+test('rejection: volume surge includes the threshold when supplied (2dp, no "1.5× < 1.5×")', () => {
   const [r] = formatRejectionReasons(sig({ volumeSurge: false }), { volumeMult: 1.5 });
-  assert.equal(r, 'volume surge insufficient (0.8× < 1.5×)');
+  assert.equal(r, 'volume surge insufficient (0.80× < 1.50×)');
+  // A value just under the threshold reads correctly instead of rounding to "1.5× < 1.5×".
+  const [r2] = formatRejectionReasons(sig({ volumeSurge: false }, { volumeRatio: 1.46 }), { volumeMult: 1.5 });
+  assert.equal(r2, 'volume surge insufficient (1.46× < 1.50×)');
 });
 
 test('rejection: existing position is reported first', () => {
@@ -104,12 +132,12 @@ test('describeBreakBlock: pending confirmation explains the false-breakout wait'
 test('describeBreakBlock: not-triggered signal surfaces the failing filter(s)', () => {
   assert.equal(
     describeBreakBlock(sig({ volumeSurge: false }, { confirmation: 'confirmed' }), { volumeMult: 1.5 }),
-    'volume surge insufficient (0.8× < 1.5×)'
+    'volume surge insufficient (0.80× < 1.50×)'
   );
   // multiple failures join with "; "
   assert.equal(
     describeBreakBlock(sig({ vwapAligned: false, volumeSurge: false }, { confirmation: 'confirmed' }), { volumeMult: 1.5 }),
-    'price below VWAP on a long breakout (entry 100.00 ≤ VWAP 101.00); volume surge insufficient (0.8× < 1.5×)'
+    'price below VWAP on a long breakout (entry 100.00 ≤ VWAP 101.00); volume surge insufficient (0.80× < 1.50×)'
   );
 });
 

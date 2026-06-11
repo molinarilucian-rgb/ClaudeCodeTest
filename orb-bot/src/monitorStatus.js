@@ -38,6 +38,33 @@ export function formatMonitorPending({ symbol, timeframe, direction }) {
 }
 
 /**
+ * Gap-direction check evaluated at the PENDING stage (a breakout candle closed
+ * beyond the OR but the confirmation candle hasn't printed yet). The gap-direction
+ * filter (`gapAligned`) gates the eventual signal, but it's only consumed inside
+ * `triggered` — i.e. AT/AFTER confirmation. A gap-down stock that pokes ABOVE its
+ * OR high therefore registers a *long* PENDING that can never become a valid
+ * signal. Surfacing the gap check here — before any signal is logged, identically
+ * for every timeframe — makes that doomed PENDING auditable immediately instead
+ * of letting it sit as a hopeful "awaiting confirmation" line.
+ *
+ * @param {object} signal a detectBreakout() result (needs symbol/timeframe/
+ *   direction/gapPct/confirmations.gapAligned)
+ * @returns {{aligned:boolean, text:string}} the check result + its log line
+ */
+export function formatPendingGapCheck(signal) {
+  const aligned = signal.confirmations?.gapAligned !== false;
+  const gapTxt = signal.gapPct == null
+    ? 'n/a'
+    : `${signal.gapPct >= 0 ? '+' : ''}${signal.gapPct.toFixed(2)}%`;
+  const gapDir = (signal.gapPct ?? 0) >= 0 ? 'gap up' : 'gap down';
+  const head = `${signal.symbol} ${signal.timeframe}m PENDING gap-direction check`;
+  const text = aligned
+    ? `${head} OK — ${gapDir} ${gapTxt} aligned with ${signal.direction} breakout`
+    : `${head} FAILED — ${gapDir} ${gapTxt} vs ${signal.direction} breakout (signal will be blocked: gap direction mismatch)`;
+  return { aligned, text };
+}
+
+/**
  * Explain why a structurally-valid breakout did NOT become a signal. Inspects the
  * signal's confirmation flags and returns one human-readable reason per failed
  * check, so every otherwise-silent rejection in the monitor becomes auditable.
@@ -72,8 +99,11 @@ export function formatRejectionReasons(signal, thresholds = {}) {
       : `price above VWAP on a short breakout (entry ${signal.entryPrice.toFixed(2)} ≥ VWAP ${vwapTxt})`);
   }
   if (c.volumeSurge === false) {
-    const need = thresholds.volumeMult != null ? ` < ${thresholds.volumeMult}×` : '';
-    reasons.push(`volume surge insufficient (${signal.volumeRatio.toFixed(1)}×${need})`);
+    // 2-decimal precision: the filter passes on volumeRatio >= mult, so a value
+    // like 1.46× correctly fails 1.5×. Rounding to 1 decimal printed both as
+    // "1.5×", producing the mathematically-nonsensical "1.5× < 1.5×" audit line.
+    const need = thresholds.volumeMult != null ? ` < ${thresholds.volumeMult.toFixed(2)}×` : '';
+    reasons.push(`volume surge insufficient (${signal.volumeRatio.toFixed(2)}×${need})`);
   }
   if (c.beforeCutoff === false) {
     reasons.push('past the 11:00 ET entry cutoff');
@@ -110,4 +140,4 @@ export function describeBreakBlock(signal, thresholds = {}) {
   return reasons.length ? reasons.join('; ') : 'one or more confirmation filters not met';
 }
 
-export default { isShortBias, formatMonitorStatus, formatMonitorPending, formatRejectionReasons, describeBreakBlock };
+export default { isShortBias, formatMonitorStatus, formatMonitorPending, formatPendingGapCheck, formatRejectionReasons, describeBreakBlock };

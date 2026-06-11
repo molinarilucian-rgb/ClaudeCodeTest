@@ -9,12 +9,14 @@ import { detectBreakout, ENTRY_CUTOFF_OFFSET } from './strategy/breakoutDetector
 import { sendDiscord, sendBreakoutAlert } from './notify/discord.js';
 import { getWatchlist, saveOpeningRange, saveSignal, getSignal } from './data/database.js';
 import { decideStartupAction } from './startupPolicy.js';
-import { formatMonitorStatus, formatMonitorPending, formatRejectionReasons, isShortBias, describeBreakBlock } from './monitorStatus.js';
+import { formatMonitorStatus, formatMonitorPending, formatPendingGapCheck, formatRejectionReasons, isShortBias, describeBreakBlock } from './monitorStatus.js';
 import { executionEngine } from './execution/executionEngine.js';
 // Phase 4 — performance analytics & reporting (read-only; never touches orders).
 import { generateDailyReport } from './reporting/dailyReport.js';
 import { generateWeeklyReport } from './reporting/weeklyReport.js';
 import { sendDailyDiscord, sendWeeklyDiscord } from './reporting/discordReport.js';
+import { computeGapReversals } from './reporting/gapReversal.js';
+import { upsertDailyWatchlistStats } from './reporting/performanceDb.js';
 
 /**
  * ORB Bot — main entry / scheduler (Phase 6, morning timeline).
@@ -39,6 +41,10 @@ const alertedSignals = new Set();
 // Throttle for the periodic monitor status log: key `symbol|tf` → last bar
 // timestamp logged, so we emit at most one line per new 1-min bar per symbol+tf.
 const monitorStatusSeen = new Map();
+
+// Throttle for the PENDING-stage gap-direction check log: key `symbol|tf` → last
+// bar ts logged, so the check is surfaced once per new 1-min bar (not every 30s).
+const pendingGapCheckSeen = new Map();
 
 // Throttle for rejection logs: key `symbol|tf` → last bar timestamp logged, so a
 // silent rejection is explained at most once per new 1-min bar (not every 30s tick).
@@ -297,7 +303,21 @@ async function jobMonitorBreakouts() {
         }
         continue;
       }
-      if (signal.confirmation === 'pending') continue; // breakout seen — wait for the next candle
+      if (signal.confirmation === 'pending') {
+        // Evaluate the gap-direction filter at the PENDING stage — before any
+        // signal is logged — for every timeframe. A gap-down stock breaking ABOVE
+        // its OR (or vice-versa) is gap-misaligned and can never confirm into a
+        // valid signal; surface that now instead of letting it sit as a hopeful
+        // PENDING. Throttled to once per new 1-min bar per symbol+tf.
+        const gapCheckKey = `${row.symbol}|${tf}`;
+        if (pendingGapCheckSeen.get(gapCheckKey) !== lastBar.t) {
+          pendingGapCheckSeen.set(gapCheckKey, lastBar.t);
+          const gapCheck = formatPendingGapCheck(signal);
+          if (gapCheck.aligned) logger.info(gapCheck.text);
+          else logger.warn(`⚠️ ${gapCheck.text}`);
+        }
+        continue; // breakout seen — wait for the next candle
+      }
 
       // De-dup across both memory and DB so a mid-session restart can't re-handle.
       const key = `${date}|${row.symbol}|${tf}|${signal.direction}`;
@@ -370,8 +390,21 @@ function jobHeartbeat() {
 // modifies, or cancels orders. Self-contained try/catch so a reporting failure
 // can never crash the bot (the job runner wraps it too — belt and suspenders).
 async function jobDailyReport() {
+  const date = etDateStr();
+  // Gap-reversal watchlist scan (async; persisted to daily_watchlist_stats).
+  // Isolated so a market-data hiccup can never block the P&L report below.
   try {
-    const { data, paths } = generateDailyReport();
+    const gr = await computeGapReversals(date);
+    upsertDailyWatchlistStats(date, gr);
+    logger.info(
+      `Gap-reversal scan ${date}: ${gr.gapReversalCount}/${gr.gapDownCount} gap-down stocks above 30m OR low by 10:00 ET ` +
+      `(${gr.untradedReversalCount} untraded)${gr.reversalSymbols.length ? ' — ' + gr.reversalSymbols.join(', ') : ''}`
+    );
+  } catch (err) {
+    logger.warn(`Gap-reversal scan failed (non-fatal): ${err.stack || err.message}`);
+  }
+  try {
+    const { data, paths } = generateDailyReport({ date });
     if (paths) logger.info(`Daily report written → ${paths.dir} (summary.txt, data.json, trades.csv)`);
     await sendDailyDiscord(data);
   } catch (err) {

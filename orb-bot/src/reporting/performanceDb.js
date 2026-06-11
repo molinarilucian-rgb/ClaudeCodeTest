@@ -81,11 +81,21 @@ CREATE TABLE IF NOT EXISTS cumulative_stats (
   last_updated    TEXT
 );
 
+CREATE TABLE IF NOT EXISTS daily_watchlist_stats (
+  date                    TEXT PRIMARY KEY,
+  watchlist_count         INTEGER,
+  gap_down_count          INTEGER,
+  gap_reversal_count      INTEGER,
+  untraded_reversal_count INTEGER,
+  reversal_symbols        TEXT,
+  created_at              TEXT DEFAULT (datetime('now'))
+);
+
 CREATE INDEX IF NOT EXISTS idx_strategy_perf_date ON strategy_performance(date);
 CREATE INDEX IF NOT EXISTS idx_strategy_perf_key  ON strategy_performance(strategy_key);
 `);
 
-logger.info('Phase 4 analytics tables ready (strategy_performance, daily_summary, cumulative_stats).');
+logger.info('Phase 4 analytics tables ready (strategy_performance, daily_summary, cumulative_stats, daily_watchlist_stats).');
 
 // LEFT JOIN closed trades onto their originating signal so each performance row
 // carries quality score / volume ratio / gap. Signals are keyed by
@@ -217,6 +227,33 @@ export function getDailySummaries(date) {
   return db.prepare('SELECT * FROM daily_summary WHERE date = ? ORDER BY strategy_key').all(date);
 }
 
+/**
+ * Upsert the day-level watchlist stats (gap-reversal tracking). One row per date
+ * — a watchlist-wide metric, NOT per strategy_key, which is why it lives in its
+ * own table rather than daily_summary. `reversalSymbols` is stored comma-joined.
+ */
+export function upsertDailyWatchlistStats(date, s) {
+  db.prepare(`
+    INSERT INTO daily_watchlist_stats
+      (date, watchlist_count, gap_down_count, gap_reversal_count,
+       untraded_reversal_count, reversal_symbols)
+    VALUES (?,?,?,?,?,?)
+    ON CONFLICT(date) DO UPDATE SET
+      watchlist_count=excluded.watchlist_count, gap_down_count=excluded.gap_down_count,
+      gap_reversal_count=excluded.gap_reversal_count,
+      untraded_reversal_count=excluded.untraded_reversal_count,
+      reversal_symbols=excluded.reversal_symbols
+  `).run(
+    date, s.watchlistCount ?? null, s.gapDownCount ?? null, s.gapReversalCount ?? null,
+    s.untradedReversalCount ?? null, (s.reversalSymbols ?? []).join(',')
+  );
+}
+
+/** Read the day-level watchlist stats row for a date (or undefined). */
+export function getDailyWatchlistStats(date) {
+  return db.prepare('SELECT * FROM daily_watchlist_stats WHERE date = ?').get(date);
+}
+
 /** Fired signals for a date (read-only on the Phase 2 signals table). */
 export function getSignalsForDate(date) {
   return db.prepare('SELECT * FROM signals WHERE date = ? ORDER BY fired_at ASC').all(date);
@@ -245,6 +282,7 @@ export default {
   getClosedTradeRecordsForDate, getClosedTradeRecordsForRange, getAllClosedTradeRecords,
   upsertStrategyPerformance, upsertDailySummary, upsertCumulativeStat,
   rebuildCumulativeStats, getCumulativeStats, getDailySummaries,
+  upsertDailyWatchlistStats, getDailyWatchlistStats,
   getSignalsForDate, getSignalsForRange,
   countTradingDaysTracked, getRecentPerformance, getOpenPositions,
 };
